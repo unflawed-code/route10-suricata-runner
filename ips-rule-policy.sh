@@ -1,0 +1,170 @@
+#!/bin/sh
+# Integrated Route10 Suricata Rule Policy & Optimization Script (V5)
+# Uses Python3 for robust category-based pruning (BusyBox awk-compatible).
+
+set -eu
+
+RULES=""
+for cand in \
+    /a/suricata/data/rules/suricata.rules \
+    /var/lib/suricata/rules/suricata.rules \
+    /etc/suricata/rules/suricata.rules \
+    /usr/share/suricata/rules/suricata.rules
+do
+    if [ -f "$cand" ]; then
+        RULES="$cand"
+        break
+    fi
+done
+POLICY_CONF=/cfg/suricata-custom/ips-policy.conf
+if [ ! -f "$POLICY_CONF" ]; then
+    POLICY_CONF=/etc/suricata/ips-policy.conf
+fi
+OVERRIDE_CONF=/cfg/suricata-custom/ips-policy.override.conf
+DISABLE_OUT=/etc/suricata/disable.conf
+DROP_OUT=/etc/suricata/drop.conf
+
+# Defaults
+IPS_ENABLED=0
+IPS_INLINE=0
+IPS_ALLOWED_CATEGORIES=""
+[ -f "$POLICY_CONF" ] && . "$POLICY_CONF"
+# Optional override file to avoid clobbering UI-managed config.
+[ -f "$OVERRIDE_CONF" ] && . "$OVERRIDE_CONF"
+
+log() { logger -t ips-rule-policy.sh "$@"; }
+
+if [ "${IPS_ENABLED}" != "1" ]; then
+    : > "$DISABLE_OUT"
+    : > "$DROP_OUT"
+    chmod 0644 "$DISABLE_OUT" "$DROP_OUT"
+    log "IPS disabled; wrote empty policy files."
+    exit 0
+fi
+
+if [ -z "$RULES" ] || [ ! -f "$RULES" ]; then
+    log "ERROR: rules file not found in known locations."
+    exit 1
+fi
+
+# If Suricata is running (UI enabled), do not interfere.
+if ps -w | grep -E 'Suricata-Main|/usr/bin/.suricata' | grep -v grep >/dev/null 2>&1; then
+    log "Suricata appears to be running. Disable it via UI or CLI before running this script."
+    exit 0
+fi
+
+log "Starting: rules='$RULES' inline=${IPS_INLINE} categories='${IPS_ALLOWED_CATEGORIES}'"
+
+# Run Python3 to analyze rules and perform in-place pruning
+python3 - "$RULES" "$DISABLE_OUT" "$DROP_OUT" \
+         "$IPS_ALLOWED_CATEGORIES" << 'PYEOF'
+import sys, re
+
+rules_file   = sys.argv[1]
+disable_out  = sys.argv[2]
+drop_out     = sys.argv[3]
+allowed_cats = set(sys.argv[4].split()) if sys.argv[4].strip() else set()
+
+# Phase 1: Analyze rules, build disable SID set
+SID_RE  = re.compile(r'\bsid:(\d+)')
+CLS_RE  = re.compile(r'\bclasstype:(\S+?)(?:;|$|\s)')
+
+disable_sids = set()
+drop_sids    = set()
+
+with open(rules_file) as f:
+    for line in f:
+        # Strip comment prefix for analysis
+        raw = line.strip()
+        if raw.startswith('#'):
+            raw = raw.lstrip('#').lstrip()
+
+        m_sid = SID_RE.search(raw)
+        if not m_sid:
+            continue
+        sid = m_sid.group(1)
+
+        m_cls  = CLS_RE.search(raw)
+
+        # Protocol filter (Suricata 8 on Route10 is very picky)
+        ALLOWED_PROTOS = {'tcp', 'udp', 'icmp', 'ip', 'http', 'tls', 'dns', 'http1', 'http2'}
+        proto_match = re.match(r'^\s*#?\s*(?:drop|alert|reject|pass)\s+(\S+)', line)
+        if proto_match:
+            proto = proto_match.group(1).lower()
+            if proto not in ALLOWED_PROTOS:
+                disable_sids.add(sid)
+                continue
+
+        cls  = m_cls.group(1).rstrip(';') if m_cls else ''
+
+        # Category filter (most aggressive)
+        if allowed_cats:
+            if (not cls) or (cls not in allowed_cats):
+                disable_sids.add(sid)
+                continue
+
+        # No priority-based filtering; only category/protocol pruning.
+
+# Phase 2: Add noise reduction regex entries
+noise = [
+    're:msg:"SURICATA STREAM FIN invalid ack"',
+    're:msg:"SURICATA STREAM packet out of window"',
+    're:msg:"SURICATA STREAM reassembly overlap"',
+    're:msg:"SURICATA STREAM excessive retransmissions"',
+    're:msg:"SURICATA STREAM ESTABLISHED invalid ack"',
+]
+
+with open(disable_out, 'w') as f:
+    for sid in sorted(disable_sids, key=int):
+        f.write(sid + '\n')
+    for n in noise:
+        f.write(n + '\n')
+
+with open(drop_out, 'w') as f:
+    for sid in sorted(drop_sids, key=int):
+        f.write(sid + '\n')
+
+print(f"disable: {len(disable_sids)} SIDs, drop: {len(drop_sids)} SIDs", file=sys.stderr)
+
+# Phase 4: In-place pruning
+RULE_LINE_RE = re.compile(r'^\s*#?\s*(alert|drop|reject|pass|pkthdr)\s')
+pruned = 0
+active = 0
+with open(rules_file) as inp, open(rules_file + '.tmp', 'w') as out:
+    for line in inp:
+        stripped = line.strip()
+        if not stripped:
+            out.write(line)
+            continue
+            
+        orig = stripped.lstrip('#').lstrip()
+        m = SID_RE.search(orig)
+        if m and RULE_LINE_RE.match(line):
+            sid = m.group(1)
+            if sid in disable_sids:
+                # Ensure line is commented
+                if not stripped.startswith('#'):
+                    out.write('# ' + line)
+                else:
+                    out.write(line)
+                pruned += 1
+            else:
+                # Ensure line is UNcommented (restore)
+                if stripped.startswith('#'):
+                    out.write(orig + '\n')
+                else:
+                    out.write(line)
+                active += 1
+        elif stripped.startswith('#') or RULE_LINE_RE.match(line):
+            # Keep comments or headers
+            out.write(line)
+        else:
+            # Skip noise like "DEBUG_COMMENTED"
+            continue
+
+import os
+os.replace(rules_file + '.tmp', rules_file)
+print(f"Rules: {active} active, {pruned} pruned", file=sys.stderr)
+PYEOF
+
+log "Category pruning complete. $(wc -l < "$DISABLE_OUT") entries in disable.conf."

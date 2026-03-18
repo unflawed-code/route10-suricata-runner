@@ -1,0 +1,11 @@
+# Handle line endings automatically for files detected as text 
+# and perform LF normalization.
+* text=auto
+
+# Explicitly declare settings for executable files to ensure they
+# always use LF line endings, regardless of the operating system.
+# This is critical for scripts running on OpenWrt / Linux.
+**/*.sh text eol=lf
+**/*.lua text eol=lf
+**/*.toml text eol=lf
+dnscrypt-proxy.logrotate text eol=lf
