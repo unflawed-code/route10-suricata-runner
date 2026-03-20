@@ -4,6 +4,16 @@
 
 set -eu
 
+# Resolve the absolute path to this script (handle symlinks)
+REAL_PATH="$(readlink -f "$0")"
+SELF_DIR="$(cd "$(dirname "$REAL_PATH")" && pwd)"
+# If inside 'scripts', the project root is one level up
+if [ "$(basename "$SELF_DIR")" = "scripts" ]; then
+    REMOTE_DIR="$(dirname "$SELF_DIR")"
+else
+    REMOTE_DIR="$SELF_DIR"
+fi
+
 RULES=""
 for cand in \
     /a/suricata/data/rules/suricata.rules \
@@ -16,11 +26,11 @@ do
         break
     fi
 done
-POLICY_CONF=/cfg/suricata-custom/ips-policy.conf
+
+POLICY_CONF="${REMOTE_DIR}/ips-policy.conf"
 if [ ! -f "$POLICY_CONF" ]; then
     POLICY_CONF=/etc/suricata/ips-policy.conf
 fi
-OVERRIDE_CONF=/cfg/suricata-custom/ips-policy.override.conf
 DISABLE_OUT=/etc/suricata/disable.conf
 DROP_OUT=/etc/suricata/drop.conf
 
@@ -29,8 +39,6 @@ IPS_ENABLED=0
 IPS_INLINE=0
 IPS_ALLOWED_CATEGORIES=""
 [ -f "$POLICY_CONF" ] && . "$POLICY_CONF"
-# Optional override file to avoid clobbering UI-managed config.
-[ -f "$OVERRIDE_CONF" ] && . "$OVERRIDE_CONF"
 
 log() { logger -t ips-rule-policy.sh "$@"; }
 
@@ -98,12 +106,9 @@ with open(rules_file) as f:
         cls  = m_cls.group(1).rstrip(';') if m_cls else ''
 
         # Category filter (most aggressive)
-        if allowed_cats:
-            if (not cls) or (cls not in allowed_cats):
-                disable_sids.add(sid)
-                continue
-
-        # No priority-based filtering; only category/protocol pruning.
+        if (not cls) or (cls not in allowed_cats):
+            disable_sids.add(sid)
+            continue
 
 # Phase 2: Add noise reduction regex entries
 noise = [

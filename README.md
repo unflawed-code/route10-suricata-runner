@@ -17,28 +17,33 @@ This project provides a robust, automated solution for managing Suricata on Rout
 
 ### 1. Upload Files
 
-Upload the following files to your router at `/cfg/suricata-custom/`:
+Upload the project files to your router (e.g., to `/cfg/suricata-runner/` or any directory of your choice):
 
 - `setup.sh`
-- `boot-prune.sh`
-- `ips-rule-policy.sh`
 - `ips-policy.conf`
-- `ips-policy.override.conf`
+- `scripts/boot-prune.sh`
+- `scripts/ips-rule-policy.sh`
+- `scripts/post-update-prune.sh`
+- `scripts/suricata-update.sh`
+- `scripts/start.sh`
+
+> **Note**: On the router, all these files can reside in a flat directory or maintain the `scripts/` structure; `setup.sh` will auto-detect their location.
 
 ### 2. Set Permissions
 
-Login to your router via SSH and set the appropriate permissions on the scripts:
+Login to your router via SSH, navigate to your upload directory, and set the appropriate permissions:
 
 ```bash
-chmod 700 /cfg/suricata-custom/*.sh
+cd /path/to/your/upload
+chmod 700 *.sh scripts/*.sh 2>/dev/null || chmod 700 *.sh
 ```
 
 ### 3. Run Setup
 
-Execute the setup script manually to configure symlinks and apply memory patches:
+Execute the setup script from within your upload directory:
 
 ```bash
-/bin/ash /cfg/suricata-custom/setup.sh
+/bin/ash setup.sh
 ```
 
 This will:
@@ -48,9 +53,50 @@ This will:
 3. Configure `/cfg/post-cfg.sh` to ensure persistence after reboot.
 4. Trigger the initial rule pruning and restart Suricata.
 
+## Verification
+
+After installation, you can verify the system status and determine your active blocking mode.
+
+### 1. Check if Suricata is Running
+
+Run the following command to see the active Suricata engine:
+
+```bash
+ps -w | grep Suricata-Main
+```
+
+If active, you will see a process line for `suricata`.
+
+### 2. Identify the Active Blocking Mode
+
+The blocking behavior depends on the `IPS_INLINE` setting in `ips-policy.conf`:
+
+#### **Mode A: Reactive Blocking (IPS_INLINE=0)**
+
+*Recommended for Route10 (lowest latency).* Suricata runs as an IDS and sends alerts to the `ips` daemon, which then dynamically blocks the IP in the firewall.
+
+- **Verify Daemon**: `ps -w | grep "/usr/sbin/ips"` should show the reactive daemon running.
+- **Verify Connection**: `grep "eve-log output device (unix_dgram) initialized: /var/run/ips.sock" /var/log/suricata/suricata.log` confirms Suricata is talking to the daemon.
+
+#### **Mode B: Inline IPS (IPS_INLINE=1)**
+
+Suricata runs directly in the packet path (AF_PACKET) and drops packets in real-time.
+
+- **Verify Engine Mode**: `grep "NFQ" /var/log/suricata/suricata.log` or checking for `AF_PACKET` in the log confirms inline operation.
+
+### 3. Check for Active Blocks
+
+To see if any IPs are currently blocked by the reactive daemon:
+
+```bash
+iptables -L ips -v -n
+```
+
+The `ips` chain will list active drops if a threat has been detected and blocked.
+
 ## Configuration
 
-All configuration is managed in `/cfg/suricata-custom/ips-policy.conf`.
+All configuration is managed in `/cfg/suricata-runner/ips-policy.conf`.
 
 ### Key Settings
 
@@ -88,18 +134,23 @@ grep "rules successfully loaded" /var/log/suricata/suricata.log | tail -n 1
 If you want to force a re-prune and restart without rebooting:
 
 ```bash
-/bin/ash /cfg/suricata-custom/boot-prune.sh 1
+/bin/ash /cfg/suricata-runner/boot-prune.sh 1
 ```
 
-## File Structure
+## File Structure (Repository)
 
 ```text
-/cfg/suricata-custom/
+/
 ├── setup.sh               # One-time installation and persistence setup
-├── boot-prune.sh          # Background automation (runs on every boot)
-├── ips-rule-policy.sh     # Optimized rule pruner (Python3)
 ├── ips-policy.conf        # User configuration (categories, mode)
-└── ips-policy.override.conf # Custom overrides
+├── scripts/
+│   ├── boot-prune.sh      # Background automation (runs on every boot)
+│   ├── ips-rule-policy.sh # Optimized rule pruner (Python3)
+│   ├── post-update-prune.sh # Post-update maintenance
+│   ├── suricata-update.sh  # Update wrapper
+│   └── start.sh           # Boot wrapper for persistence
+└── tests/                 # Test suite
+
 ```
 
 ## License

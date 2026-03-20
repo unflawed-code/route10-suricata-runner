@@ -2,18 +2,34 @@
 # Integrated Suricata Optimization Setup for Route10
 # Replaces system rule policy script with optimized in-place pruner.
 
-REMOTE_DIR="/cfg/suricata-custom"
+# Detect local directory
+REMOTE_DIR="$(cd "$(dirname "$0")" && pwd)"
 SYSTEM_SCRIPT="/usr/sbin/ips-rule-policy.sh"
-CUSTOM_SCRIPT="${REMOTE_DIR}/ips-rule-policy.sh"
 POST_CFG="/cfg/post-cfg.sh"
+
+# Detect script locations (support flat or scripts/ subdir)
+CUSTOM_SCRIPT="${REMOTE_DIR}/scripts/ips-rule-policy.sh"
+[ ! -f "$CUSTOM_SCRIPT" ] && CUSTOM_SCRIPT="${REMOTE_DIR}/ips-rule-policy.sh"
+
+BOOT_PRUNE_SCRIPT="${REMOTE_DIR}/scripts/boot-prune.sh"
+[ ! -f "$BOOT_PRUNE_SCRIPT" ] && BOOT_PRUNE_SCRIPT="${REMOTE_DIR}/boot-prune.sh"
+
+START_WRAPPER="${REMOTE_DIR}/scripts/start.sh"
+[ ! -f "$START_WRAPPER" ] && START_WRAPPER="${REMOTE_DIR}/start.sh"
 
 log() {
     echo "[setup] $1"
 }
 
 log "Setting permissions on scripts..."
-chmod +x "${REMOTE_DIR}/ips-rule-policy.sh"
-chmod +x "${REMOTE_DIR}/boot-prune.sh"
+[ -f "$CUSTOM_SCRIPT" ] && chmod +x "$CUSTOM_SCRIPT"
+[ -f "$BOOT_PRUNE_SCRIPT" ] && chmod +x "$BOOT_PRUNE_SCRIPT"
+[ -f "$START_WRAPPER" ] && chmod +x "$START_WRAPPER"
+# Also handle other scripts if present
+[ -f "${REMOTE_DIR}/scripts/post-update-prune.sh" ] && chmod +x "${REMOTE_DIR}/scripts/post-update-prune.sh"
+[ -f "${REMOTE_DIR}/post-update-prune.sh" ] && chmod +x "${REMOTE_DIR}/post-update-prune.sh"
+[ -f "${REMOTE_DIR}/scripts/suricata-update.sh" ] && chmod +x "${REMOTE_DIR}/scripts/suricata-update.sh"
+[ -f "${REMOTE_DIR}/suricata-update.sh" ] && chmod +x "${REMOTE_DIR}/suricata-update.sh"
 
 # Integrate with system path
 if [ ! -L "$SYSTEM_SCRIPT" ]; then
@@ -44,22 +60,27 @@ if [ -f "/usr/bin/suricata-update.sh" ]; then
 fi
 
 # Ensure persistence in post-cfg.sh
-if ! grep -q "ln -sf $CUSTOM_SCRIPT $SYSTEM_SCRIPT" "$POST_CFG" 2>/dev/null; then
-    log "Adding persistence hook to $POST_CFG..."
-    # Ensure shebang exists
-    [ ! -f "$POST_CFG" ] && echo "#!/bin/ash" > "$POST_CFG"
-    
-    # Add hooks to restore optimized rule policy and its configuration
+# Remove any existing (incorrect) entries first to avoid duplicates or misplaced hooks
+sed -i "/suricata-runner/d" "$POST_CFG" 2>/dev/null
+
+log "Adding persistence hook to $POST_CFG..."
+# Create file with shebang if missing
+if [ ! -f "$POST_CFG" ]; then
+    echo "#!/bin/ash" > "$POST_CFG"
     echo "" >> "$POST_CFG"
-    echo "# Restore optimized Suricata rule policy and configuration" >> "$POST_CFG"
-    echo "ln -sf $CUSTOM_SCRIPT $SYSTEM_SCRIPT" >> "$POST_CFG"
-    echo "cp ${REMOTE_DIR}/ips-policy.conf /etc/suricata/ips-policy.conf" >> "$POST_CFG"
-    # Re-apply the suricatad.sh patch after reboot if it's been lost
-    echo "sed -i 's/suricata-update --fail --no-test/# suricata-update --fail --no-test/g' /usr/bin/suricatad.sh 2>/dev/null" >> "$POST_CFG"
-    echo "chmod +x ${REMOTE_DIR}/boot-prune.sh" >> "$POST_CFG"
-    echo "${REMOTE_DIR}/boot-prune.sh 120 >/var/log/suricata-boot-prune.log 2>&1 &" >> "$POST_CFG"
-    chmod 755 "$POST_CFG"
 fi
+
+# Insert the hook at the top (after line 1) to avoid being skipped by an 'exit 0'
+# We use a temp file for maximum compatibility with different sed versions
+{
+    head -n 1 "$POST_CFG"
+    echo ""
+    echo "# Initialize optimized Suricata rule policy and configuration"
+    echo "$START_WRAPPER &"
+    tail -n +2 "$POST_CFG"
+} > "${POST_CFG}.tmp" && mv "${POST_CFG}.tmp" "$POST_CFG"
+
+chmod 755 "$POST_CFG"
 
 log "Ensuring current session config is active..."
 cp "${REMOTE_DIR}/ips-policy.conf" "/etc/suricata/ips-policy.conf"

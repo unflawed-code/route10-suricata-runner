@@ -1,5 +1,16 @@
 #!/bin/ash
+# Suricata Boot Pruning & Startup Automation for Route10
+# Dynamically detects project directory to support arbitrary install paths.
+
 set -eu
+
+# Detect base directory (support flat or scripts/ subdir)
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ "$(basename "$SELF_DIR")" = "scripts" ]; then
+    REMOTE_DIR="$(dirname "$SELF_DIR")"
+else
+    REMOTE_DIR="$SELF_DIR"
+fi
 
 LOGTAG="suricata-boot-prune"
 DELAY="${1:-60}"
@@ -10,7 +21,6 @@ log() {
 }
 
 is_running() {
-    # Check if the system wrapper is active (UI enabled)
     pgrep -f "/usr/bin/suricatad.sh" >/dev/null 2>&1
 }
 
@@ -29,15 +39,18 @@ esac
 
 log "boot-prune starting; sleeping ${DELAY}s before action"
 sleep "$DELAY"
-log "boot-prune awake; checking prerequisites"
+log "boot-prune awake from $REMOTE_DIR"
 
 if [ ! -x /usr/sbin/ips-rule-policy.sh ]; then
     log "ips-rule-policy.sh not found or not executable; skipping."
     exit 0
 fi
 
+# MARK START OF DANGER ZONE
+touch "${REMOTE_DIR}/BOOT_PENDING"
+
 # Load IPS policy for inline mode decision.
-POLICY_CONF=/cfg/suricata-custom/ips-policy.conf
+POLICY_CONF="${REMOTE_DIR}/ips-policy.conf"
 if [ ! -f "$POLICY_CONF" ]; then
     POLICY_CONF=/etc/suricata/ips-policy.conf
 fi
@@ -88,33 +101,30 @@ if is_running; then
     else
         kill_suricata
         sleep 2
-        # suricatad.sh wrapper (if triggered by system) will restart it
     fi
     log "prune complete; restarted via system paths"
 else
     log "Suricata is NOT running (UI disabled). Starting in Pure CLI mode."
-    
-    # 1. Stop any stray processes first
     kill_suricata
     sleep 1
 
-    # 2. Start IPS daemon (Reactive Blocker) if not running
     if ! pgrep -f "/usr/sbin/ips -n 1 -b 1" >/dev/null; then
         log "Starting ips daemon..."
         /usr/sbin/ips -n 1 -b 1 -i 0 &
         sleep 1
     fi
 
-    # 2. Connect Firewall Chain
     iptables -N ips 2>/dev/null || true
     if ! iptables -S forwarding_rule | grep -q " -j ips"; then
         log "Connecting ips firewall chain..."
         iptables -A forwarding_rule -j ips
     fi
 
-    # 3. Start Suricata directly (Pure CLI Mode)
     log "Starting Suricata engine directly..."
     /usr/bin/suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ids.yaml $IFACES -D
     
     log "prune complete; started in Pure CLI mode"
 fi
+
+# 3. Successful finish: clear the BOOT_PENDING sentinel file
+rm -f "${REMOTE_DIR}/BOOT_PENDING"
