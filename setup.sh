@@ -68,8 +68,8 @@ if [ ! -f "$POST_CFG" ]; then
     echo "" >> "$POST_CFG"
 fi
 
-if grep -q "suricata-runner/start.sh" "$POST_CFG" 2>/dev/null; then
-    if grep -E "^#.*suricata-runner/start.sh" "$POST_CFG" >/dev/null; then
+if grep -q "$START_WRAPPER" "$POST_CFG" 2>/dev/null; then
+    if grep -E "^#.*$START_WRAPPER" "$POST_CFG" >/dev/null; then
         log "Persistence hook found in $POST_CFG but it is currently DISABLED (commented out)."
     else
         log "Persistence hook found in $POST_CFG and it is ENABLED."
@@ -107,5 +107,5 @@ $SYSTEM_SCRIPT
 touch "${REMOTE_DIR}/.setup_done"
 
 log "Setup complete. Memory pressure will decrease significantly on Suricata restart."
-log "NOTE: Boot persistence is currently DISABLED. To enable, uncomment the suricata-runner entry in $POST_CFG"
+log "NOTE: Boot persistence status check completed in $POST_CFG"
 log "Run: /etc/init.d/suricata restart"
