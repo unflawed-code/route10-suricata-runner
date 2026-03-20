@@ -60,25 +60,31 @@ if [ -f "/usr/bin/suricata-update.sh" ]; then
 fi
 
 # Ensure persistence in post-cfg.sh
-# Remove any existing (incorrect) entries first to avoid duplicates or misplaced hooks
-sed -i "/suricata-runner/d" "$POST_CFG" 2>/dev/null
+log "Checking persistence hook in $POST_CFG..."
 
-log "Adding persistence hook to $POST_CFG..."
 # Create file with shebang if missing
 if [ ! -f "$POST_CFG" ]; then
     echo "#!/bin/ash" > "$POST_CFG"
     echo "" >> "$POST_CFG"
 fi
 
-# Insert the hook at the top (after line 1) to avoid being skipped by an 'exit 0'
-# We use a temp file for maximum compatibility with different sed versions
-{
-    head -n 1 "$POST_CFG"
-    echo ""
-    echo "# Initialize optimized Suricata rule policy and configuration"
-    echo "$START_WRAPPER &"
-    tail -n +2 "$POST_CFG"
-} > "${POST_CFG}.tmp" && mv "${POST_CFG}.tmp" "$POST_CFG"
+if grep -q "suricata-runner/start.sh" "$POST_CFG" 2>/dev/null; then
+    if grep -E "^#.*suricata-runner/start.sh" "$POST_CFG" >/dev/null; then
+        log "Persistence hook found in $POST_CFG but it is currently DISABLED (commented out)."
+    else
+        log "Persistence hook found in $POST_CFG and it is ENABLED."
+    fi
+else
+    log "Adding persistence hook to $POST_CFG (commented out by default)..."
+    # Insert the hook at the top (after line 1) to avoid being skipped by an 'exit 0'
+    {
+        head -n 1 "$POST_CFG"
+        echo ""
+        echo "# Initialize optimized Suricata rule policy and configuration (Uncomment to enable)"
+        echo "# $START_WRAPPER &"
+        tail -n +2 "$POST_CFG"
+    } > "${POST_CFG}.tmp" && mv "${POST_CFG}.tmp" "$POST_CFG"
+fi
 
 chmod 755 "$POST_CFG"
 
@@ -98,5 +104,8 @@ fi
 log "Triggering initial rule optimization via system path..."
 $SYSTEM_SCRIPT
 
+touch "${REMOTE_DIR}/.setup_done"
+
 log "Setup complete. Memory pressure will decrease significantly on Suricata restart."
+log "NOTE: Boot persistence is currently DISABLED. To enable, uncomment the suricata-runner entry in $POST_CFG"
 log "Run: /etc/init.d/suricata restart"

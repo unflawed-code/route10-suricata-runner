@@ -21,11 +21,11 @@ Upload the project files to your router (e.g., to `/cfg/suricata-runner/` or any
 
 - `setup.sh`
 - `ips-policy.conf`
+- `scripts/start.sh`
 - `scripts/boot-prune.sh`
 - `scripts/ips-rule-policy.sh`
 - `scripts/post-update-prune.sh`
 - `scripts/suricata-update.sh`
-- `scripts/start.sh`
 
 > **Note**: On the router, all these files can reside in a flat directory or maintain the `scripts/` structure; `setup.sh` will auto-detect their location.
 
@@ -50,8 +50,10 @@ This will:
 
 1. Patch `/usr/bin/suricatad.sh` and `/usr/bin/suricata-update.sh` to fix memory spike bugs.
 2. Create the `/var/lib/suricata` and `/var/run/suricata` prerequisites.
-3. Configure `/cfg/post-cfg.sh` to ensure persistence after reboot.
+3. Configure `/cfg/post-cfg.sh` (as a commented entry) to ensure persistence after reboot.
 4. Trigger the initial rule pruning and restart Suricata.
+
+> **Important**: After running `setup.sh`, you MUST manually edit `/cfg/post-cfg.sh` and uncomment the `start.sh` line to enable persistence across reboots.
 
 ## Verification
 
@@ -93,6 +95,14 @@ iptables -L ips -v -n
 ```
 
 The `ips` chain will list active drops if a threat has been detected and blocked.
+
+## Optimization Results
+
+This project significantly reduces the resource footprint of Suricata on the Route10:
+
+- **Rule Reduction**: Typically reduces the ruleset from ~65,000 rules down to **~7,700 active rules** (an ~88% reduction).
+- **Memory Stability**: By pruning unnecessary categories and patching redundant update cycles, RAM spikes are curtailed, preventing the OOM (Out Of Memory) kills common with the default configuration.
+- **Latency**: Reactive blocking (IDS mode) avoids the overhead of inline packet processing while still providing dynamic firewall protection.
 
 ## Configuration
 
@@ -144,13 +154,12 @@ If you want to force a re-prune and restart without rebooting:
 ├── setup.sh               # One-time installation and persistence setup
 ├── ips-policy.conf        # User configuration (categories, mode)
 ├── scripts/
+│   ├── start.sh           # Boot wrapper for persistence
 │   ├── boot-prune.sh      # Background automation (runs on every boot)
 │   ├── ips-rule-policy.sh # Optimized rule pruner (Python3)
 │   ├── post-update-prune.sh # Post-update maintenance
-│   ├── suricata-update.sh  # Update wrapper
-│   └── start.sh           # Boot wrapper for persistence
+│   └── suricata-update.sh  # Update wrapper
 └── tests/                 # Test suite
-
 ```
 
 ## License

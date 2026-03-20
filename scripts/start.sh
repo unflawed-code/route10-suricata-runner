@@ -14,10 +14,18 @@ fi
 LOG_FILE="/var/log/suricata-start.log"
 DISABLE_FILE="${REMOTE_DIR}/DISABLED"
 PENDING_FILE="${REMOTE_DIR}/BOOT_PENDING"
+SETUP_SENTINEL="${REMOTE_DIR}/.setup_done"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
+
+# 0. Initial Setup Check
+if [ ! -f "$SETUP_SENTINEL" ]; then
+    echo "ERROR: Setup has not been run for this project."
+    echo "Please run: /bin/ash setup.sh"
+    exit 1
+fi
 
 # 1. Manual/Auto Disable Check
 if [ -f "$DISABLE_FILE" ]; then
