@@ -9,8 +9,10 @@ This project provides a robust, automated solution for managing Suricata on Rout
   - **Optimized UI Mode**: Keep Suricata **Enabled** in the Web UI. The script detects the system process, prunes the rules, and restarts the engine, allowing the use of the UI for status monitoring while still benefiting from memory optimizations.
 - **Configurable Security Categories**: Allows the user to select which security categories to keep active. Includes a recommended preset for home users that balances high protection with low memory usage.
 - **Automatic Patching**: Patches the system's `suricatad.sh` and `suricata-update.sh` to prevent memory-heavy redundant update cycles (saving ~800MB RAM spikes).
+- **Runtime Hardening**: Disables file-oriented Suricata outputs such as `file-store`, `tcp-data`, `http-body-data`, and `pcap-log` to avoid `libmagic` crashes and tmpfs exhaustion under `/var/log/suricata`.
 - **Boot Integration**: Seamlessly integrates with the router's boot process via `/cfg/post-cfg.sh`.
 - **Reactive Blocking**: Retains the hardware's "Block Level" reactive firewall integration via the `ips` daemon.
+- **Flow Offload Management**: Automatically disables software and hardware flow offloading when `IPS_INLINE=1`, and restores the prior offload settings when switching back to `IPS_INLINE=0`.
 - **Multi-VLAN Support**: Automatically monitors all defined LAN interfaces (`br-lan`, `br-lan_2`, etc.).
 
 ## Installation
@@ -82,9 +84,10 @@ The blocking behavior depends on the `IPS_INLINE` setting in `ips-policy.conf`:
 
 #### **Mode B: Inline IPS (IPS_INLINE=1)**
 
-Suricata runs directly in the packet path (AF_PACKET) and drops packets in real-time.
+Suricata runs directly in the packet path using NFQUEUE and drops packets in real-time.
 
-- **Verify Engine Mode**: `grep "NFQ" /var/log/suricata/suricata.log` or checking for `AF_PACKET` in the log confirms inline operation.
+- **Verify Engine Mode**: `grep "NFQ running in standard ACCEPT/DROP mode" /var/log/suricata/suricata.log` confirms inline operation.
+- **Firewall Compatibility**: The runner disables `flow_offloading` and `flow_offloading_hw` before starting NFQUEUE mode, then reloads the firewall. This is required for true inline inspection, but it can briefly disrupt tunnels or sessions during the reload.
 
 ### 3. Check for Active Blocks
 
@@ -122,7 +125,10 @@ All configuration is managed in `/cfg/suricata-runner/ips-policy.conf`.
 4. **Pruning**: `ips-rule-policy.sh` (Python-based) comments out unnecessary rules to save RAM.
 5. **Auto-Start/Optimize**:
    - If UI is **Enabled**: It restarts the system wrapper to apply pruned rules.
-   - If UI is **Disabled**: It manually starts the `ips` daemon and `suricata` engine directly.
+   - If UI is **Disabled**: It manually starts the `ips` daemon and `suricata` engine directly. `IPS_INLINE=0` uses IDS plus reactive blocking, while `IPS_INLINE=1` uses NFQUEUE inline IPS.
+6. **Offload Handling**:
+   - `IPS_INLINE=1`: The runner saves the current firewall offload settings, disables flow offloading, reloads the firewall, and then starts NFQUEUE mode.
+   - `IPS_INLINE=0`: The runner restores the previously saved offload settings and reloads the firewall before starting IDS plus reactive blocking.
 
 ## Troubleshooting
 
@@ -144,7 +150,7 @@ grep "rules successfully loaded" /var/log/suricata/suricata.log | tail -n 1
 If you want to force a re-prune and restart without rebooting:
 
 ```bash
-/bin/ash /cfg/suricata-runner/boot-prune.sh 1
+/bin/ash /cfg/suricata-runner/boot-prune.sh 0 # number of seconds, defaults to 60 if not provided
 ```
 
 ## File Structure (Repository)
