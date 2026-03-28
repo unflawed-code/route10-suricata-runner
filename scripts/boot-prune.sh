@@ -158,6 +158,19 @@ disable_file_magic_outputs() {
     done
 }
 
+discover_lan_ifaces() {
+    if [ -n "${LAN_IFACES:-}" ]; then
+        printf '%s\n' "$LAN_IFACES"
+        return 0
+    fi
+
+    if command -v find >/dev/null 2>&1; then
+        find /sys/class/net -maxdepth 1 -mindepth 1 -type l -name 'br-lan*' 2>/dev/null \
+            | sed 's#.*/##' \
+            | sort
+    fi
+}
+
 cleanup_nfq_rules() {
     local chain="IPS_NFQ"
     while iptables -t mangle -D FORWARD -j "$chain" 2>/dev/null; do :; done
@@ -236,7 +249,11 @@ chown -R suricata:suricata /var/log/suricata /var/run/suricata 2>/dev/null || tr
 disable_file_magic_outputs
 
 # Interfaces list
-LAN_IFACES="br-lan br-lan_2 br-lan_5 br-lan_10 br-lan_15"
+LAN_IFACES="$(discover_lan_ifaces)"
+if [ -z "$LAN_IFACES" ]; then
+    LAN_IFACES="br-lan"
+    log "No br-lan* interfaces detected; falling back to br-lan"
+fi
 
 # Phase 1: Prune rules
 log "running ips-rule-policy.sh"
