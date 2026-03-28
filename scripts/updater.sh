@@ -1,0 +1,149 @@
+#!/bin/ash
+
+# Wrap the entire script in a block to ensure it is fully loaded into memory.
+# This makes self-overwriting safe.
+{
+set -eu
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ "$(basename "$SELF_DIR")" = "scripts" ]; then
+    REMOTE_DIR="$(dirname "$SELF_DIR")"
+else
+    REMOTE_DIR="$SELF_DIR"
+fi
+
+VERSION_SCRIPT="${REMOTE_DIR}/scripts/version.sh"
+[ ! -f "$VERSION_SCRIPT" ] && VERSION_SCRIPT="${REMOTE_DIR}/version.sh"
+POLICY_CONF="/etc/suricata/ips-policy.conf"
+[ ! -f "$POLICY_CONF" ] && POLICY_CONF="${REMOTE_DIR}/ips-policy.conf"
+LOG_FILE="/var/log/suricata-runner-update.log"
+GITHUB_REPO="unflawed-code/route10-suricata-runner"
+LATEST_RELEASE_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+WEB_LATEST_URL="https://github.com/${GITHUB_REPO}/releases/latest"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] updater: $*" | tee -a "$LOG_FILE"
+}
+
+# Source local version
+if [ -f "$VERSION_SCRIPT" ]; then
+    . "$VERSION_SCRIPT"
+else
+    log "ERROR: Missing version script at $VERSION_SCRIPT"
+    exit 1
+fi
+
+get_latest_version_tag() {
+    local tag=""
+    
+    # Method 1: GitHub API (Primary)
+    if command -v wget >/dev/null 2>&1; then
+        tag=$(wget --no-check-certificate -qO- "$LATEST_RELEASE_URL" | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p' | head -n 1)
+    elif command -v curl >/dev/null 2>&1; then
+        tag=$(curl -s "$LATEST_RELEASE_URL" | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p' | head -n 1)
+    fi
+
+    # Method 2: Fallback to Redirect (No API rate limits)
+    if [ -z "$tag" ]; then
+        if command -v curl >/dev/null 2>&1; then
+            tag=$(curl -sIL "$WEB_LATEST_URL" | grep -i "^location:" | sed -n 's/.*\/tag\(s\)\?\/\([^[:space:]\r]*\).*/\2/p' | tail -n 1)
+        elif command -v wget >/dev/null 2>&1; then
+            tag=$(wget --no-check-certificate -S --spider "$WEB_LATEST_URL" 2>&1 | grep -i "Location:" | sed -n 's/.*\/tag\(s\)\?\/\([^[:space:]\r]*\).*/\2/p' | tail -n 1)
+        fi
+    fi
+
+    if [ -z "$tag" ]; then
+        log "ERROR: Could not fetch latest version tag from GitHub."
+        return 1
+    fi
+    echo "$tag" | tr -d '\r'
+}
+
+version_gt() {
+    local v1=$(echo "$1" | sed 's/^v//' | tr -d '\r')
+    local v2=$(echo "$2" | sed 's/^v//' | tr -d '\r')
+    [ "$v1" = "$v2" ] && return 1
+    local i=1
+    while [ $i -le 3 ]; do
+        local p1=$(echo "$v1" | cut -d. -f$i); [ -z "$p1" ] && p1=0
+        local p2=$(echo "$v2" | cut -d. -f$i); [ -z "$p2" ] && p2=0
+        if [ "$p1" -gt "$p2" ]; then return 0; fi
+        if [ "$p1" -lt "$p2" ]; then return 1; fi
+        i=$((i+1))
+    done
+    return 1
+}
+
+perform_update() {
+    local tag="$1"
+    local download_url="https://github.com/${GITHUB_REPO}/archive/refs/tags/${tag}.tar.gz"
+    local tmp_dir="/tmp/suricata-runner-update"
+    local backup_dir="/tmp/suricata-runner-backup"
+    local archive="${tmp_dir}/update.tar.gz"
+    
+    log "Initiating update to version $tag..."
+    rm -rf "$tmp_dir" "$backup_dir"
+    mkdir -p "$tmp_dir" "$backup_dir"
+    
+    log "Creating safety backup of current version..."
+    cp -rf "${REMOTE_DIR}/"* "$backup_dir/"
+    
+    log "Downloading $download_url..."
+    if command -v curl >/dev/null 2>&1; then
+        curl -sL "$download_url" -o "$archive" || { log "ERROR: Download failed."; return 1; }
+    elif command -v wget >/dev/null 2>&1; then
+        wget --no-check-certificate -q "$download_url" -O "$archive" || { log "ERROR: Download failed."; return 1; }
+    fi
+    
+    log "Extracting archive..."
+    tar -xzf "$archive" -C "$tmp_dir" || { log "ERROR: Extraction failed."; return 1; }
+    
+    local extracted_root=$(ls -d "${tmp_dir}/${GITHUB_REPO##*/}"* | head -n 1)
+    [ -d "$extracted_root" ] || { log "ERROR: Extracted root not found."; return 1; }
+    
+    log "Applying update files..."
+    cp "$POLICY_CONF" "${tmp_dir}/ips-policy.conf.bak" 2>/dev/null || true
+    cp -rf "${extracted_root}/"* "$REMOTE_DIR/"
+    if [ -f "${tmp_dir}/ips-policy.conf.bak" ]; then
+        cp -f "${tmp_dir}/ips-policy.conf.bak" "$POLICY_CONF"
+        [ -f "${REMOTE_DIR}/ips-policy.conf" ] && cp -f "$POLICY_CONF" "${REMOTE_DIR}/ips-policy.conf"
+    fi
+    
+    log "Running setup and validating update..."
+    if /bin/ash "${REMOTE_DIR}/setup.sh"; then
+        log "Update to $tag verified and completed successfully."
+        rm -rf "$tmp_dir" "$backup_dir"
+        return 0
+    else
+        log "CRITICAL: Setup failed during update. Initiating rollback..."
+        rm -rf "${REMOTE_DIR:?}/"*
+        cp -rf "${backup_dir}/"* "$REMOTE_DIR/"
+        log "Restoring original system state..."
+        /bin/ash "${REMOTE_DIR}/setup.sh" || log "ERROR: Rollback setup also failed."
+        rm -rf "$tmp_dir" "$backup_dir"
+        log "Rollback completed. Staying on version v$SURICATA_RUNNER_VERSION."
+        return 1
+    fi
+}
+
+check_and_update() {
+    local force="${1:-0}"
+    local latest_tag
+    latest_tag=$(get_latest_version_tag) || return 1
+    
+    if version_gt "$latest_tag" "$SURICATA_RUNNER_VERSION" || [ "$force" = "1" ]; then
+        [ "$force" = "1" ] && log "Force update requested." || log "New version available: $latest_tag"
+        perform_update "$latest_tag"
+    else
+        log "Runner is already up to date (v$SURICATA_RUNNER_VERSION)."
+    fi
+}
+
+cmd="${1:-check}"
+case "$cmd" in
+    check) check_and_update 0 ;;
+    force) check_and_update 1 ;;
+    *) echo "Usage: $0 {check|force}"; exit 1 ;;
+esac
+
+} # End of buffered block

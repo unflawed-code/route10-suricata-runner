@@ -95,7 +95,7 @@ with open(rules_file) as f:
         m_cls  = CLS_RE.search(raw)
 
         # Protocol filter (Suricata 8 on Route10 is very picky)
-        ALLOWED_PROTOS = {'tcp', 'udp', 'icmp', 'ip', 'http', 'tls', 'dns', 'http1', 'http2'}
+        ALLOWED_PROTOS = {'tcp', 'udp', 'icmp', 'ip', 'http', 'tls', 'dns', 'http1', 'http2', 'websocket'}
         proto_match = re.match(r'^\s*#?\s*(?:drop|alert|reject|pass)\s+(\S+)', line)
         if proto_match:
             proto = proto_match.group(1).lower()

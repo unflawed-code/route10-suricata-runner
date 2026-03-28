@@ -1,0 +1,6 @@
+# Route10-managed WebSocket rules.
+# These are intentionally small and conservative. They exist to validate that
+# the WebSocket parser is enabled and that websocket-specific keywords compile
+# on the custom Suricata build.
+
+alert websocket $EXTERNAL_NET any -> $HOME_NET any (msg:"Route10 WebSocket suspicious shell expansion marker"; flow:established,to_server; websocket.payload; content:"|5b 24|"; depth:2; classtype:web-application-attack; sid:2900001; rev:1;)

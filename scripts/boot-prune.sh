@@ -11,11 +11,33 @@ if [ "$(basename "$SELF_DIR")" = "scripts" ]; then
 else
     REMOTE_DIR="$SELF_DIR"
 fi
+VERSION_SCRIPT="${REMOTE_DIR}/scripts/version.sh"
+[ ! -f "$VERSION_SCRIPT" ] && VERSION_SCRIPT="${REMOTE_DIR}/version.sh"
+
+if [ "${1:-}" = "-v" ] || [ "${1:-}" = "--version" ]; then
+    if [ -f "$VERSION_SCRIPT" ]; then
+        . "$VERSION_SCRIPT"
+        print_suricata_runner_version
+        exit 0
+    fi
+    echo "ERROR: Missing version helper at $VERSION_SCRIPT" >&2
+    exit 1
+fi
 
 OFFLOAD_STATE="${REMOTE_DIR}/firewall-offload.state"
+DEFAULT_SURICATA_BIN="/usr/bin/suricata"
+DEFAULT_SURICATA_LIB_PATH=""
+VECTORSCAN_DIR="${REMOTE_DIR}/vectorscan"
+VECTORSCAN_WRAPPER="${VECTORSCAN_DIR}/bin/route10-suricata"
+VECTORSCAN_RUNTIME_ROOT="/a/suricata-vectorscan"
+NDPI_PLUGIN_PATH="${VECTORSCAN_RUNTIME_ROOT}/lib/suricata/ndpi.so"
+RULES_DIR="/var/lib/suricata/rules"
+WEBSOCKET_RULE_FILE="route10-websocket.rules"
+NDPI_BYPASS_RULE_FILE="route10-ndpi-bypass.rules"
 
 LOGTAG="suricata-boot-prune"
 DELAY="${1:-60}"
+ENABLE_STATS="${2:-0}"
 
 log() {
     logger -t "$LOGTAG" "$@"
@@ -24,6 +46,192 @@ log() {
 
 normalize_flag() {
     printf '%s' "${1:-0}" | tr -d '\r[:space:]'
+}
+
+normalize_text() {
+    printf '%s' "${1:-}" | tr -d '\r'
+}
+
+resolve_suricata_bin() {
+    local candidate
+    if [ -x "$VECTORSCAN_WRAPPER" ]; then
+        candidate="$VECTORSCAN_WRAPPER"
+    else
+        candidate="$DEFAULT_SURICATA_BIN"
+    fi
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        printf '%s' "$candidate"
+    else
+        printf '%s' "$DEFAULT_SURICATA_BIN"
+    fi
+}
+
+resolve_suricata_lib_path() {
+    if [ -x "$VECTORSCAN_WRAPPER" ]; then
+        printf '%s' "${VECTORSCAN_DIR}/lib:/.deb/lib"
+    else
+        normalize_text "${SURICATA_LIB_PATH:-$DEFAULT_SURICATA_LIB_PATH}"
+    fi
+}
+
+run_suricata() {
+    local bin lib_path
+    bin="$(resolve_suricata_bin)"
+    lib_path="$(resolve_suricata_lib_path)"
+
+    if [ "$(basename "$bin")" = "route10-suricata" ]; then
+        log "Starting Suricata via wrapper SURICATA_BIN=$bin"
+        LD_LIBRARY_PATH= "$bin" "$@"
+    elif [ -n "$lib_path" ]; then
+        log "Starting Suricata with SURICATA_BIN=$bin and SURICATA_LIB_PATH=$lib_path"
+        LD_LIBRARY_PATH="$lib_path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$bin" "$@"
+    else
+        log "Starting Suricata with SURICATA_BIN=$bin"
+        "$bin" "$@"
+    fi
+}
+
+log_runtime_summary() {
+    local bin
+    bin="$(resolve_suricata_bin)"
+
+    if [ "$(basename "$bin")" = "route10-suricata" ]; then
+        log "Runtime summary: custom Vectorscan runtime selected via $bin"
+    else
+        log "Runtime summary: vendor/runtime default selected via $bin"
+    fi
+}
+
+ensure_vectorscan_runtime() {
+    link_latest_lib() {
+        local lib_dir="$1"
+        local glob="$2"
+        local direct_link="$3"
+        local major_link="$4"
+        local real_name=""
+
+        real_name="$(basename "$(ls -1 ${lib_dir}/${glob} 2>/dev/null | sort | tail -n 1)")"
+        [ -n "${real_name:-}" ] || return 0
+        [ -f "${lib_dir}/${real_name}" ] || return 0
+
+        if [ -n "$major_link" ]; then
+            ln -sf "$real_name" "${lib_dir}/${major_link}"
+            ln -sf "$major_link" "${lib_dir}/${direct_link}"
+        else
+            ln -sf "$real_name" "${lib_dir}/${direct_link}"
+        fi
+    }
+
+    local runtime_dir lib_dir ndpi_real ndpi_major
+    runtime_dir="$VECTORSCAN_DIR"
+    [ -d "$runtime_dir" ] || return 0
+
+    lib_dir="${runtime_dir}/lib"
+    [ -d "$lib_dir" ] || return 0
+
+    link_latest_lib "$lib_dir" 'libhs.so.5.*' 'libhs.so' 'libhs.so.5'
+    link_latest_lib "$lib_dir" 'libhs_runtime.so.5.*' 'libhs_runtime.so' 'libhs_runtime.so.5'
+    if [ -f "${lib_dir}/libstdc++.so.6.0.30" ]; then
+        ln -sf libstdc++.so.6.0.30 "${lib_dir}/libstdc++.so.6"
+    fi
+    ndpi_real="$(basename "$(ls -1 "${lib_dir}"/libndpi.so.* 2>/dev/null | sort | tail -n 1)")"
+    if [ -n "${ndpi_real:-}" ] && [ -f "${lib_dir}/${ndpi_real}" ]; then
+        ndpi_major="$(printf '%s' "$ndpi_real" | sed -n 's/^libndpi\.so\.\([0-9][0-9]*\)\..*/\1/p')"
+        if [ -n "${ndpi_major:-}" ]; then
+            ln -sf "$ndpi_real" "${lib_dir}/libndpi.so.${ndpi_major}"
+            ln -sf "libndpi.so.${ndpi_major}" "${lib_dir}/libndpi.so"
+        else
+            ln -sf "$ndpi_real" "${lib_dir}/libndpi.so"
+        fi
+    fi
+}
+
+sync_managed_rules() {
+    local src_dir="${REMOTE_DIR}/rules"
+    local rule_file
+
+    [ -d "$src_dir" ] || return 0
+    mkdir -p "$RULES_DIR"
+
+    for rule_file in "$WEBSOCKET_RULE_FILE" "$NDPI_BYPASS_RULE_FILE"; do
+        if [ -f "${src_dir}/${rule_file}" ]; then
+            cp -f "${src_dir}/${rule_file}" "${RULES_DIR}/${rule_file}"
+        fi
+    done
+    chown -R suricata:suricata "$RULES_DIR" 2>/dev/null || true
+}
+
+ensure_rule_file_entry() {
+    local yaml="$1"
+    local rule_file="$2"
+    local enabled="$3"
+    local escaped_rule
+    escaped_rule="$(printf '%s' "$rule_file" | sed 's/[.[\*^$()+?{}|/]/\\&/g')"
+
+    if [ "$enabled" = "1" ]; then
+        if ! grep -Fqx "  - ${rule_file}" "$yaml" 2>/dev/null; then
+            sed -i "/^[[:space:]]*-[[:space:]]*suricata\\.rules$/a\\  - ${rule_file}" "$yaml"
+        fi
+    else
+        sed -i "\|^[[:space:]]*-[[:space:]]*${escaped_rule}$|d" "$yaml"
+    fi
+}
+
+ensure_plugin_entry() {
+    local yaml="$1"
+    local plugin_path="$2"
+    local enabled="$3"
+    local escaped_plugin
+    escaped_plugin="$(printf '%s' "$plugin_path" | sed 's/[.[\*^$()+?{}|/]/\\&/g')"
+
+    if [ "$enabled" = "1" ]; then
+        if ! grep -Fqx "  - ${plugin_path}" "$yaml" 2>/dev/null; then
+            sed -i "/^plugins:/a\\  - ${plugin_path}" "$yaml"
+        fi
+    else
+        sed -i "\|^[[:space:]]*-[[:space:]]*${escaped_plugin}$|d" "$yaml"
+    fi
+}
+
+ensure_websocket_parser() {
+    local yaml="$1"
+    local enabled="$2"
+    sed -i '/^    websocket:/,/^    [a-z0-9-]\+:/ {/^[[:space:]]*enabled:[[:space:]]*\(yes\|no\)$/d; /^[[:space:]]*#enabled:[[:space:]]*yes$/d;}' "$yaml"
+    if [ "$enabled" = "1" ]; then
+        sed -i '/^    websocket:/a\      enabled: yes' "$yaml"
+    else
+        sed -i '/^    websocket:/a\      #enabled: yes' "$yaml"
+    fi
+}
+
+ensure_telnet_detection() {
+    local yaml="$1"
+    sed -i '/^    telnet:/,/^    [a-z0-9-]\+:/ {/^[[:space:]]*enabled:[[:space:]]*\(yes\|no\)$/d; /^[[:space:]]*detection-enabled:[[:space:]]*\(yes\|no\)$/d; /^[[:space:]]*#enabled:[[:space:]]*yes$/d; /^[[:space:]]*#detection-enabled:[[:space:]]*yes$/d;}' "$yaml"
+    sed -i '/^    telnet:/a\      detection-enabled: yes\n      enabled: yes' "$yaml"
+}
+
+apply_feature_patches() {
+    local yaml enable_ndpi enable_websocket enable_ws_rules enable_ndpi_bypass
+    enable_ndpi="$1"
+    enable_websocket="$2"
+    enable_ws_rules="$3"
+    enable_ndpi_bypass="$4"
+
+    for yaml in /usr/share/suricata/suricata-ids.yaml /usr/share/suricata/suricata-ips-nfq.yaml; do
+        [ -f "$yaml" ] || continue
+
+        if [ "$enable_ndpi" = "1" ] && [ -f "$NDPI_PLUGIN_PATH" ]; then
+            ensure_plugin_entry "$yaml" "$NDPI_PLUGIN_PATH" 1
+        else
+            ensure_plugin_entry "$yaml" "$NDPI_PLUGIN_PATH" 0
+            [ "$enable_ndpi" = "1" ] && log "WARNING: ENABLE_NDPI=1 but plugin missing at $NDPI_PLUGIN_PATH"
+        fi
+
+        ensure_websocket_parser "$yaml" "$enable_websocket"
+        ensure_telnet_detection "$yaml"
+        ensure_rule_file_entry "$yaml" "$WEBSOCKET_RULE_FILE" "$enable_ws_rules"
+        ensure_rule_file_entry "$yaml" "$NDPI_BYPASS_RULE_FILE" "$enable_ndpi_bypass"
+    done
 }
 
 is_running() {
@@ -171,24 +379,98 @@ cleanup_nfq_rules() {
     fi
 }
 
+ensure_runner_update_cron() {
+    local cron_file="/etc/crontabs/root"
+    local auto_update
+    auto_update="$(normalize_flag "${ENABLE_AUTO_UPDATE:-0}")"
+    local target_cron="30 4 * * * /bin/ash ${REMOTE_DIR}/runner.sh update"
+    
+    [ -f "$cron_file" ] || return 0
+
+    if [ "$auto_update" = "1" ]; then
+        if ! grep -Fqx "$target_cron" "$cron_file" 2>/dev/null; then
+            log "Enabling automated runner updates in cron (daily at 4:30 AM)..."
+            (grep -Fv "runner.sh update" "$cron_file" 2>/dev/null || true; echo "$target_cron") > "${cron_file}.tmp"
+            mv "${cron_file}.tmp" "$cron_file"
+            /etc/init.d/cron restart >/dev/null 2>&1 || true
+        fi
+    else
+        if grep -Fq "runner.sh update" "$cron_file" 2>/dev/null; then
+            log "Disabling automated runner updates in cron..."
+            grep -Fv "runner.sh update" "$cron_file" > "${cron_file}.tmp"
+            mv "${cron_file}.tmp" "$cron_file"
+            /etc/init.d/cron restart >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
 apply_nfq_rules() {
     local chain="IPS_NFQ"
-    local queue_num="0"
+    local queue_balance="0:3"
     local bypass_mark="0x8000/0x8000"
 
     iptables -t mangle -N "$chain" 2>/dev/null || true
     iptables -t mangle -F "$chain"
     iptables -t mangle -C FORWARD -j "$chain" 2>/dev/null || iptables -t mangle -I FORWARD 1 -j "$chain"
     iptables -t mangle -A "$chain" -m mark --mark "$bypass_mark" -j ACCEPT
-    iptables -t mangle -A "$chain" -j NFQUEUE --queue-num "$queue_num" --queue-bypass
+    iptables -t mangle -A "$chain" -j NFQUEUE --queue-balance "$queue_balance" --queue-bypass
 
     if command -v ip6tables >/dev/null 2>&1; then
         ip6tables -t mangle -N "$chain" 2>/dev/null || true
         ip6tables -t mangle -F "$chain"
         ip6tables -t mangle -C FORWARD -j "$chain" 2>/dev/null || ip6tables -t mangle -I FORWARD 1 -j "$chain"
         ip6tables -t mangle -A "$chain" -m mark --mark "$bypass_mark" -j ACCEPT
-        ip6tables -t mangle -A "$chain" -j NFQUEUE --queue-num "$queue_num" --queue-bypass
+        ip6tables -t mangle -A "$chain" -j NFQUEUE --queue-balance "$queue_balance" --queue-bypass
     fi
+}
+
+apply_performance_patches() {
+    local yaml
+    local enable_stats="$1"
+    for yaml in /usr/share/suricata/suricata-ips-nfq.yaml; do
+        [ -f "$yaml" ] || continue
+
+        # Opt 2: Enable worker runmode (best for NFQ multi-queue)
+        sed -i 's/^#runmode: autofp/runmode: workers/' "$yaml"
+        sed -i 's/^#runmode: workers/runmode: workers/' "$yaml"
+
+        # Opt 2: Enable CPU affinity
+        sed -i 's/^\(  \)set-cpu-affinity: no/\1set-cpu-affinity: yes/' "$yaml"
+
+        # Opt 3: Increase max-pending-packets from 1024 to 10000
+        sed -i 's/^#max-pending-packets: 1024/max-pending-packets: 10000/' "$yaml"
+
+        # Use the high detect profile for the inline path
+        sed -i '/^detect:/,/^[a-z]/ s/^\([[:space:]]*\)profile:[[:space:]]*medium/\1profile: high/' "$yaml"
+        sed -i '/^detect:/,/^[a-z]/ s/^\([[:space:]]*\)profile:[[:space:]]*high/\1profile: high/' "$yaml"
+
+        # Enable NFQ batchcount, keep fail-open disabled
+        sed -i 's/^[[:space:]]*batchcount:[[:space:]]*20/  batchcount: 20/' "$yaml"
+        sed -i 's/^#[[:space:]]*batchcount:[[:space:]]*20/  batchcount: 20/' "$yaml"
+        sed -i 's/^[[:space:]]*fail-open:[[:space:]]*yes/#  fail-open: yes/' "$yaml"
+
+        # Opt 4: TLS encryption-handling bypass
+        sed -i '/^    tls:/,/^    [a-z]/ s/^\(      \)#encryption-handling: track-only/\1encryption-handling: bypass/' "$yaml"
+
+        # Opt 4: SSH encryption-handling bypass
+        sed -i '/^    ssh:/,/^    [a-z]/ s/^\(      \)# encryption-handling: track-only/\1encryption-handling: bypass/' "$yaml"
+
+        # Opt 2.1: Balanced CPU affinity (Cores 0-3 for 4 workers)
+        if ! grep -q "worker-cpu-set:" "$yaml"; then
+            sed -i '/management-cpu-set:/a \    - worker-cpu-set:\n        cpu: [ 0, 1, 2, 3 ]\n        mode: exclusive' "$yaml"
+        fi
+
+        # Opt 6: Stats logging toggle
+        if [ "$enable_stats" = "1" ]; then
+            if ! grep -q "#AUTOGEN_STATS" "$yaml"; then
+                sed -i '/^outputs:/a \  #AUTOGEN_STATS\n  - stats:\n      enabled: yes\n      filename: stats.log\n      interval: 15\n  #END_AUTOGEN_STATS' "$yaml"
+            fi
+        else
+            sed -i '/#AUTOGEN_STATS/,/#END_AUTOGEN_STATS/d' "$yaml"
+        fi
+
+        log "Applied performance patches to $yaml"
+    done
 }
 
 case "$DELAY" in
@@ -216,9 +498,21 @@ if [ ! -f "$POLICY_CONF" ]; then
     POLICY_CONF=/etc/suricata/ips-policy.conf
 fi
 IPS_INLINE=0
+SURICATA_BIN="$DEFAULT_SURICATA_BIN"
+SURICATA_LIB_PATH="$DEFAULT_SURICATA_LIB_PATH"
+ENABLE_NDPI=1
+ENABLE_WEBSOCKET=1
+ENABLE_WEBSOCKET_RULES=1
+ENABLE_NDPI_BYPASS=0
 [ -f "$POLICY_CONF" ] && . "$POLICY_CONF"
 IPS_INLINE="$(normalize_flag "$IPS_INLINE")"
-log "Loaded policy from $POLICY_CONF (IPS_INLINE=$IPS_INLINE)"
+SURICATA_BIN="$(resolve_suricata_bin)"
+SURICATA_LIB_PATH="$(resolve_suricata_lib_path)"
+ENABLE_NDPI="$(normalize_flag "$ENABLE_NDPI")"
+ENABLE_WEBSOCKET="$(normalize_flag "$ENABLE_WEBSOCKET")"
+ENABLE_WEBSOCKET_RULES="$(normalize_flag "$ENABLE_WEBSOCKET_RULES")"
+ENABLE_NDPI_BYPASS="$(normalize_flag "$ENABLE_NDPI_BYPASS")"
+log "Loaded policy from $POLICY_CONF (IPS_INLINE=$IPS_INLINE, ENABLE_NDPI=$ENABLE_NDPI, ENABLE_WEBSOCKET=$ENABLE_WEBSOCKET, ENABLE_WEBSOCKET_RULES=$ENABLE_WEBSOCKET_RULES, ENABLE_NDPI_BYPASS=$ENABLE_NDPI_BYPASS, SURICATA_BIN=$SURICATA_BIN${SURICATA_LIB_PATH:+, SURICATA_LIB_PATH=$SURICATA_LIB_PATH})"
 
 # Sync config to /etc/suricata so system tools see it
 cp "$POLICY_CONF" /etc/suricata/ips-policy.conf 2>/dev/null
@@ -229,11 +523,17 @@ if [ ! -L /var/lib/suricata ] && [ ! -d /var/lib/suricata ]; then
     ln -s /a/suricata/data /var/lib/suricata
 fi
 
+ensure_vectorscan_runtime
+sync_managed_rules
+
 mkdir -p /a/suricata/data/rules
 mkdir -p /var/log/suricata
 mkdir -p /var/run/suricata
+mkdir -p /var/lib/suricata/cache/sgh
 chown -R suricata:suricata /var/log/suricata /var/run/suricata 2>/dev/null || true
+chown -R suricata:suricata /a/suricata/data/cache /a/suricata/data/cache/sgh 2>/dev/null || true
 disable_file_magic_outputs
+apply_feature_patches "$ENABLE_NDPI" "$ENABLE_WEBSOCKET" "$ENABLE_WEBSOCKET_RULES" "$ENABLE_NDPI_BYPASS"
 
 # Interfaces list
 LAN_IFACES="br-lan br-lan_2 br-lan_5 br-lan_10 br-lan_15"
@@ -247,13 +547,14 @@ if is_running; then
     log "Suricata is running (UI enabled). Restarting to apply pruned rules."
     if [ -x /var/run/suricata.sh ]; then
         /var/run/suricata.sh stop || true
-        sleep 2
-        /var/run/suricata.sh start || true
-    else
-        kill_suricata
-        sleep 2
-    fi
-    log "prune complete; restarted via system paths"
+            sleep 2
+            /var/run/suricata.sh start || true
+        else
+            kill_suricata
+            sleep 2
+        fi
+        log "prune complete; restarted via system paths"
+        log_runtime_summary
 else
     log "Suricata is NOT running (UI disabled). Starting in Pure CLI mode."
     kill_suricata
@@ -270,8 +571,10 @@ else
         cleanup_nfq_rules
         apply_nfq_rules
 
-        log "Starting Suricata engine directly in Inline mode (NFQUEUE)..."
-        /usr/bin/suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ips-nfq.yaml -q 0 -D
+        apply_performance_patches "$ENABLE_STATS"
+
+        log "Mode startup: Inline IPS (NFQUEUE, 4 queues, workers)"
+        run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ips-nfq.yaml -q 0 -q 1 -q 2 -q 3 -D
     else
         log "Mode: Reactive Blocking (IDS + ips daemon)"
         restore_offload_state
@@ -298,12 +601,16 @@ else
             fi
         done
 
-        log "Starting Suricata engine directly in IDS mode ($IDS_ARGS)..."
-        /usr/bin/suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ids.yaml $IDS_ARGS -D
+        log "Mode startup: IDS ($IDS_ARGS)"
+        run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ids.yaml $IDS_ARGS -D
     fi
-    
+
     log "prune complete; started in Pure CLI mode"
+    log_runtime_summary
 fi
 
-# 3. Successful finish: clear the BOOT_PENDING sentinel file
+# Phase 3: Synchronize cron jobs
+ensure_runner_update_cron
+
+# 4. Successful finish: clear the BOOT_PENDING sentinel file
 rm -f "${REMOTE_DIR}/BOOT_PENDING"
