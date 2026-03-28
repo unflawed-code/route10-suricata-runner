@@ -1,0 +1,22 @@
+# Route10-managed nDPI bypass examples.
+# This file is not loaded unless
+# ENABLE_NDPI_BYPASS=1 in ips-policy.conf.
+
+pass ip any any <> any any (msg:"Route10 nDPI bypass Ookla"; ndpi-protocol:ookla; sid:2900100; rev:1;)
+
+# --- Streaming Media (High Bandwidth) ---
+pass ip any any <> any any (msg:"Route10 nDPI bypass Netflix"; ndpi-protocol:netflix; sid:2900101; rev:1;)
+pass ip any any <> any any (msg:"Route10 nDPI bypass YouTube"; ndpi-protocol:youtube; sid:2900103; rev:1;)
+pass ip any any <> any any (msg:"Route10 nDPI bypass AmazonVideo"; ndpi-protocol:amazonvideo; sid:2900104; rev:1;)
+pass ip any any <> any any (msg:"Route10 nDPI bypass Twitch"; ndpi-protocol:twitch; sid:2900107; rev:1;)
+
+# --- Real-Time Comms / Conferencing (Latency Sensitive) ---
+pass udp any any <> any any (msg:"Route10 nDPI bypass Zoom (UDP)"; ndpi-protocol:zoom; sid:2900102; rev:1;)
+pass tcp any any <> any any (msg:"Route10 nDPI bypass Zoom (TCP)"; ndpi-protocol:zoom; sid:2900108; rev:1;)
+
+# --- Game Store Downloads (Massive Bandwidth) ---
+pass ip any any <> any any (msg:"Route10 nDPI bypass Steam"; ndpi-protocol:steam; sid:2900112; rev:1;)
+pass ip any any <> any any (msg:"Route10 nDPI bypass PlayStation"; ndpi-protocol:playstation; sid:2900113; rev:1;)
+pass ip any any <> any any (msg:"Route10 nDPI bypass Xbox"; ndpi-protocol:xbox; sid:2900114; rev:1;)
+pass ip any any <> any any (msg:"Route10 nDPI bypass Nintendo"; ndpi-protocol:nintendo; sid:2900115; rev:1;)
+pass ip any any <> any any (msg:"Route10 nDPI bypass EpicGames"; ndpi-protocol:epicgames; sid:2900116; rev:1;)
