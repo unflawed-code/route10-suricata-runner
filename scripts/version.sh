@@ -2,11 +2,11 @@
 
 # These are the "Code" versions (what is currently in the scripts)
 SURICATA_RUNNER_NAME="Route10 Suricata Runner"
-SURICATA_RUNNER_VERSION="2.0.0-rc1"
+SURICATA_RUNNER_VERSION="2.0.0-rc2"
 SURICATA_RUNNER_AUTHOR="https://github.com/unflawed-code"
 SURICATA_BUNDLED_VERSION="8.0.4"
 VECTORSCAN_BUNDLED_VERSION="5.4.12"
-NDPI_BUNDLED_VERSION="4.14"
+NDPI_BUNDLED_VERSION="5.0"
 SURICATA_BUNDLED_ARCH="aarch64"
 
 get_suricata_runner_version() {
@@ -20,12 +20,12 @@ get_uci_version() {
 
 print_suricata_runner_version() {
     local uci_v uci_s uci_vs uci_n sync_warn=""
-    
+
     uci_v=$(get_uci_version "version")
     uci_s=$(get_uci_version "suricata")
     uci_vs=$(get_uci_version "vectorscan")
     uci_n=$(get_uci_version "ndpi")
-    
+
     # Check for any desync
     if [ -n "$uci_v" ] && { [ "$uci_v" != "$SURICATA_RUNNER_VERSION" ] || \
                          [ "$uci_s" != "$SURICATA_BUNDLED_VERSION" ] || \
@@ -35,7 +35,7 @@ print_suricata_runner_version() {
     fi
 
     cat <<EOF
-------------------------------------    
+------------------------------------
 $SURICATA_RUNNER_NAME v$SURICATA_RUNNER_VERSION$sync_warn
 $SURICATA_RUNNER_AUTHOR
 ------------------------------------
@@ -43,9 +43,9 @@ Bundled System: $SURICATA_BUNDLED_ARCH
     Components: Suricata $SURICATA_BUNDLED_VERSION
                 nDPI $NDPI_BUNDLED_VERSION
                 Vectorscan $VECTORSCAN_BUNDLED_VERSION
-------------------------------------        
+------------------------------------
 EOF
-    
+
     if [ -n "$sync_warn" ]; then
         echo "WARNING: Installed UCI state does not match script versions:"
         [ "$uci_v" != "$SURICATA_RUNNER_VERSION" ] && echo " - Runner: $uci_v -> $SURICATA_RUNNER_VERSION"

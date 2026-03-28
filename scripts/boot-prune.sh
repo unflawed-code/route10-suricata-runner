@@ -34,6 +34,7 @@ NDPI_PLUGIN_PATH="${VECTORSCAN_RUNTIME_ROOT}/lib/suricata/ndpi.so"
 RULES_DIR="/var/lib/suricata/rules"
 WEBSOCKET_RULE_FILE="route10-websocket.rules"
 NDPI_BYPASS_RULE_FILE="route10-ndpi-bypass.rules"
+NDPI_SECURITY_RULE_FILE="route10-ndpi-security.rules"
 
 LOGTAG="suricata-boot-prune"
 DELAY="${1:-60}"
@@ -153,7 +154,7 @@ sync_managed_rules() {
     [ -d "$src_dir" ] || return 0
     mkdir -p "$RULES_DIR"
 
-    for rule_file in "$WEBSOCKET_RULE_FILE" "$NDPI_BYPASS_RULE_FILE"; do
+    for rule_file in "$WEBSOCKET_RULE_FILE" "$NDPI_BYPASS_RULE_FILE" "$NDPI_SECURITY_RULE_FILE"; do
         if [ -f "${src_dir}/${rule_file}" ]; then
             cp -f "${src_dir}/${rule_file}" "${RULES_DIR}/${rule_file}"
         fi
@@ -211,11 +212,12 @@ ensure_telnet_detection() {
 }
 
 apply_feature_patches() {
-    local yaml enable_ndpi enable_websocket enable_ws_rules enable_ndpi_bypass
+    local yaml enable_ndpi enable_websocket enable_ws_rules enable_ndpi_bypass enable_ndpi_security
     enable_ndpi="$1"
     enable_websocket="$2"
     enable_ws_rules="$3"
     enable_ndpi_bypass="$4"
+    enable_ndpi_security="$5"
 
     for yaml in /usr/share/suricata/suricata-ids.yaml /usr/share/suricata/suricata-ips-nfq.yaml; do
         [ -f "$yaml" ] || continue
@@ -231,6 +233,7 @@ apply_feature_patches() {
         ensure_telnet_detection "$yaml"
         ensure_rule_file_entry "$yaml" "$WEBSOCKET_RULE_FILE" "$enable_ws_rules"
         ensure_rule_file_entry "$yaml" "$NDPI_BYPASS_RULE_FILE" "$enable_ndpi_bypass"
+        ensure_rule_file_entry "$yaml" "$NDPI_SECURITY_RULE_FILE" "$enable_ndpi_security"
     done
 }
 
@@ -504,6 +507,7 @@ ENABLE_NDPI=1
 ENABLE_WEBSOCKET=1
 ENABLE_WEBSOCKET_RULES=1
 ENABLE_NDPI_BYPASS=0
+ENABLE_NDPI_SECURITY=0
 [ -f "$POLICY_CONF" ] && . "$POLICY_CONF"
 IPS_INLINE="$(normalize_flag "$IPS_INLINE")"
 SURICATA_BIN="$(resolve_suricata_bin)"
@@ -512,7 +516,8 @@ ENABLE_NDPI="$(normalize_flag "$ENABLE_NDPI")"
 ENABLE_WEBSOCKET="$(normalize_flag "$ENABLE_WEBSOCKET")"
 ENABLE_WEBSOCKET_RULES="$(normalize_flag "$ENABLE_WEBSOCKET_RULES")"
 ENABLE_NDPI_BYPASS="$(normalize_flag "$ENABLE_NDPI_BYPASS")"
-log "Loaded policy from $POLICY_CONF (IPS_INLINE=$IPS_INLINE, ENABLE_NDPI=$ENABLE_NDPI, ENABLE_WEBSOCKET=$ENABLE_WEBSOCKET, ENABLE_WEBSOCKET_RULES=$ENABLE_WEBSOCKET_RULES, ENABLE_NDPI_BYPASS=$ENABLE_NDPI_BYPASS, SURICATA_BIN=$SURICATA_BIN${SURICATA_LIB_PATH:+, SURICATA_LIB_PATH=$SURICATA_LIB_PATH})"
+ENABLE_NDPI_SECURITY="$(normalize_flag "$ENABLE_NDPI_SECURITY")"
+log "Loaded policy from $POLICY_CONF (IPS_INLINE=$IPS_INLINE, ENABLE_NDPI=$ENABLE_NDPI, ENABLE_WEBSOCKET=$ENABLE_WEBSOCKET, ENABLE_WEBSOCKET_RULES=$ENABLE_WEBSOCKET_RULES, ENABLE_NDPI_BYPASS=$ENABLE_NDPI_BYPASS, ENABLE_NDPI_SECURITY=$ENABLE_NDPI_SECURITY, SURICATA_BIN=$SURICATA_BIN${SURICATA_LIB_PATH:+, SURICATA_LIB_PATH=$SURICATA_LIB_PATH})"
 
 # Sync config to /etc/suricata so system tools see it
 cp "$POLICY_CONF" /etc/suricata/ips-policy.conf 2>/dev/null
@@ -533,10 +538,39 @@ mkdir -p /var/lib/suricata/cache/sgh
 chown -R suricata:suricata /var/log/suricata /var/run/suricata 2>/dev/null || true
 chown -R suricata:suricata /a/suricata/data/cache /a/suricata/data/cache/sgh 2>/dev/null || true
 disable_file_magic_outputs
-apply_feature_patches "$ENABLE_NDPI" "$ENABLE_WEBSOCKET" "$ENABLE_WEBSOCKET_RULES" "$ENABLE_NDPI_BYPASS"
+apply_feature_patches "$ENABLE_NDPI" "$ENABLE_WEBSOCKET" "$ENABLE_WEBSOCKET_RULES" "$ENABLE_NDPI_BYPASS" "$ENABLE_NDPI_SECURITY"
+
+detect_lan_ifaces() {
+    local networks iface ifaces=""
+    local i=0
+    
+    # Find the 'lan' zone networks
+    while [ $i -lt 10 ]; do
+        if [ "$(uci -q get firewall.@zone[$i].name)" = "lan" ]; then
+            networks=$(uci -q get firewall.@zone[$i].network)
+            break
+        fi
+        i=$((i+1))
+    done
+
+    # Fallback to default 'lan' if zone lookup fails
+    [ -z "${networks:-}" ] && networks="lan"
+
+    for net in $networks; do
+        # Try ifname then device (OpenWrt version compatibility)
+        iface=$(uci -q get network."$net".ifname || uci -q get network."$net".device)
+        if [ -n "$iface" ]; then
+            ifaces="$ifaces $iface"
+        fi
+    done
+    
+    # Return cleaned space-separated string
+    echo "$ifaces" | xargs
+}
 
 # Interfaces list
-LAN_IFACES="br-lan br-lan_2 br-lan_5 br-lan_10 br-lan_15"
+LAN_IFACES="$(detect_lan_ifaces)"
+[ -z "$LAN_IFACES" ] && LAN_IFACES="br-lan" # Absolute fallback
 
 # Phase 1: Prune rules
 log "running ips-rule-policy.sh"

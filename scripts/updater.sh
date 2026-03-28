@@ -22,6 +22,11 @@ LATEST_RELEASE_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
 ALL_RELEASES_URL="https://api.github.com/repos/${GITHUB_REPO}/releases"
 WEB_LATEST_URL="https://github.com/${GITHUB_REPO}/releases/latest"
 
+# Emergency tracking state for trap
+UPDATE_SUCCESS=0
+UPDATE_TMP_DIR=""
+UPDATE_BACKUP_DIR=""
+
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] updater: $*" | tee -a "$LOG_FILE"
 }
@@ -121,23 +126,31 @@ perform_rollback() {
     log "Rollback completed. Staying on version v$SURICATA_RUNNER_VERSION."
 }
 
+cleanup_trap() {
+    if [ "$UPDATE_SUCCESS" -eq 0 ] && [ -n "$UPDATE_BACKUP_DIR" ]; then
+        perform_rollback "$UPDATE_BACKUP_DIR"
+    fi
+    if [ -n "$UPDATE_TMP_DIR" ]; then
+        rm -rf "$UPDATE_TMP_DIR" "$UPDATE_BACKUP_DIR"
+    fi
+}
+
 perform_update() {
     local tag="$1"
     local download_url="https://github.com/${GITHUB_REPO}/archive/refs/tags/${tag}.tar.gz"
-    local tmp_dir="/tmp/suricata-runner-update"
-    local backup_dir="/tmp/suricata-runner-backup"
-    local archive="${tmp_dir}/update.tar.gz"
-    local success=0
+    UPDATE_TMP_DIR="/tmp/suricata-runner-update"
+    UPDATE_BACKUP_DIR="/tmp/suricata-runner-backup"
+    local archive="${UPDATE_TMP_DIR}/update.tar.gz"
     
     log "Initiating update to version $tag..."
-    rm -rf "$tmp_dir" "$backup_dir"
-    mkdir -p "$tmp_dir" "$backup_dir"
+    rm -rf "$UPDATE_TMP_DIR" "$UPDATE_BACKUP_DIR"
+    mkdir -p "$UPDATE_TMP_DIR" "$UPDATE_BACKUP_DIR"
     
     log "Creating safety backup of current version..."
-    cp -rf "${REMOTE_DIR}/"* "$backup_dir/"
+    cp -rf "${REMOTE_DIR}/"* "$UPDATE_BACKUP_DIR/"
     
     # Set trap for emergency rollback on sudden crash
-    trap 'if [ "$success" -eq 0 ]; then perform_rollback "$backup_dir"; fi; rm -rf "$tmp_dir" "$backup_dir"' EXIT
+    trap cleanup_trap EXIT
 
     log "Downloading $download_url..."
     if command -v curl >/dev/null 2>&1; then
@@ -147,23 +160,23 @@ perform_update() {
     fi
     
     log "Extracting archive..."
-    tar -xzf "$archive" -C "$tmp_dir" || return 1
+    tar -xzf "$archive" -C "$UPDATE_TMP_DIR" || return 1
     
-    local extracted_root=$(ls -d "${tmp_dir}/${GITHUB_REPO##*/}"* | head -n 1)
+    local extracted_root=$(ls -d "${UPDATE_TMP_DIR}/${GITHUB_REPO##*/}"* | head -n 1)
     [ -d "$extracted_root" ] || return 1
     
     log "Applying update files..."
-    cp "$POLICY_CONF" "${tmp_dir}/ips-policy.conf.bak" 2>/dev/null || true
+    cp "$POLICY_CONF" "${UPDATE_TMP_DIR}/ips-policy.conf.bak" 2>/dev/null || true
     cp -rf "${extracted_root}/"* "$REMOTE_DIR/"
-    if [ -f "${tmp_dir}/ips-policy.conf.bak" ]; then
-        cp -f "${tmp_dir}/ips-policy.conf.bak" "$POLICY_CONF"
+    if [ -f "${UPDATE_TMP_DIR}/ips-policy.conf.bak" ]; then
+        cp -f "${UPDATE_TMP_DIR}/ips-policy.conf.bak" "$POLICY_CONF"
         [ -f "${REMOTE_DIR}/ips-policy.conf" ] && cp -f "$POLICY_CONF" "${REMOTE_DIR}/ips-policy.conf"
     fi
     
     log "Running setup and validating update..."
     if /bin/ash "${REMOTE_DIR}/setup.sh"; then
         log "Update to $tag verified and completed successfully."
-        success=1
+        UPDATE_SUCCESS=1
         return 0
     else
         return 1
@@ -179,103 +192,7 @@ check_and_update() {
         [ "$force" = "1" ] && log "Force update requested." || log "New version available: $latest_tag"
         perform_update "$latest_tag"
     else
-        log "Runner is already up to date (v$SURICATA_RUNNER_VERSION)."
-    fi
-}
-
-cmd="${1:-check}"
-case "$cmd" in
-    check) check_and_update 0 ;;
-    force) check_and_update 1 ;;
-    *) echo "Usage: $0 {check|force}"; exit 1 ;;
-esac
-
-} # End of buffered block
-
-check_and_update() {
-    local force="${1:-0}"
-    local latest_tag
-    latest_tag=$(get_latest_version_tag) || return 1
-    
-    if version_gt "$latest_tag" "$SURICATA_RUNNER_VERSION" || [ "$force" = "1" ]; then
-        [ "$force" = "1" ] && log "Force update requested." || log "New version available: $latest_tag"
-        perform_update "$latest_tag"
-    else
-        log "Runner is already up to date (v$SURICATA_RUNNER_VERSION)."
-    fi
-}
-
-cmd="${1:-check}"
-case "$cmd" in
-    check) check_and_update 0 ;;
-    force) check_and_update 1 ;;
-    *) echo "Usage: $0 {check|force}"; exit 1 ;;
-esac
-
-} # End of buffered block
-
-perform_update() {
-    local tag="$1"
-    local download_url="https://github.com/${GITHUB_REPO}/archive/refs/tags/${tag}.tar.gz"
-    local tmp_dir="/tmp/suricata-runner-update"
-    local backup_dir="/tmp/suricata-runner-backup"
-    local archive="${tmp_dir}/update.tar.gz"
-    
-    log "Initiating update to version $tag..."
-    rm -rf "$tmp_dir" "$backup_dir"
-    mkdir -p "$tmp_dir" "$backup_dir"
-    
-    log "Creating safety backup of current version..."
-    cp -rf "${REMOTE_DIR}/"* "$backup_dir/"
-    
-    log "Downloading $download_url..."
-    if command -v curl >/dev/null 2>&1; then
-        curl -sL "$download_url" -o "$archive" || { log "ERROR: Download failed."; return 1; }
-    elif command -v wget >/dev/null 2>&1; then
-        wget --no-check-certificate -q "$download_url" -O "$archive" || { log "ERROR: Download failed."; return 1; }
-    fi
-    
-    log "Extracting archive..."
-    tar -xzf "$archive" -C "$tmp_dir" || { log "ERROR: Extraction failed."; return 1; }
-    
-    local extracted_root=$(ls -d "${tmp_dir}/${GITHUB_REPO##*/}"* | head -n 1)
-    [ -d "$extracted_root" ] || { log "ERROR: Extracted root not found."; return 1; }
-    
-    log "Applying update files..."
-    cp "$POLICY_CONF" "${tmp_dir}/ips-policy.conf.bak" 2>/dev/null || true
-    cp -rf "${extracted_root}/"* "$REMOTE_DIR/"
-    if [ -f "${tmp_dir}/ips-policy.conf.bak" ]; then
-        cp -f "${tmp_dir}/ips-policy.conf.bak" "$POLICY_CONF"
-        [ -f "${REMOTE_DIR}/ips-policy.conf" ] && cp -f "$POLICY_CONF" "${REMOTE_DIR}/ips-policy.conf"
-    fi
-    
-    log "Running setup and validating update..."
-    if /bin/ash "${REMOTE_DIR}/setup.sh"; then
-        log "Update to $tag verified and completed successfully."
-        rm -rf "$tmp_dir" "$backup_dir"
-        return 0
-    else
-        log "CRITICAL: Setup failed during update. Initiating rollback..."
-        rm -rf "${REMOTE_DIR:?}/"*
-        cp -rf "${backup_dir}/"* "$REMOTE_DIR/"
-        log "Restoring original system state..."
-        /bin/ash "${REMOTE_DIR}/setup.sh" || log "ERROR: Rollback setup also failed."
-        rm -rf "$tmp_dir" "$backup_dir"
-        log "Rollback completed. Staying on version v$SURICATA_RUNNER_VERSION."
-        return 1
-    fi
-}
-
-check_and_update() {
-    local force="${1:-0}"
-    local latest_tag
-    latest_tag=$(get_latest_version_tag) || return 1
-    
-    if version_gt "$latest_tag" "$SURICATA_RUNNER_VERSION" || [ "$force" = "1" ]; then
-        [ "$force" = "1" ] && log "Force update requested." || log "New version available: $latest_tag"
-        perform_update "$latest_tag"
-    else
-        log "Runner is already up to date (v$SURICATA_RUNNER_VERSION)."
+        log "No updates found for route10-suricata-runner."
     fi
 }
 

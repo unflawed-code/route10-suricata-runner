@@ -154,9 +154,9 @@ run_status() {
     local version project_inline active_inline suricata_proc ips_proc
     local mode matcher rules_line cron_update cron_prune cron_runner hook_status
     local current_start_line commented_start_line vectorscan_present
-    local project_ndpi project_websocket project_ws_rules project_ndpi_bypass
+    local project_ndpi project_websocket project_ws_rules project_ndpi_bypass project_ndpi_security
     local project_auto_update
-    local active_yaml ndpi_status websocket_status websocket_rules_status ndpi_bypass_status
+    local active_yaml ndpi_status websocket_status websocket_rules_status ndpi_bypass_status ndpi_security_status
 
     load_version
     version="$SURICATA_RUNNER_VERSION"
@@ -166,6 +166,7 @@ run_status() {
     project_websocket="$(get_policy_value "$POLICY_CONF" "ENABLE_WEBSOCKET")"
     project_ws_rules="$(get_policy_value "$POLICY_CONF" "ENABLE_WEBSOCKET_RULES")"
     project_ndpi_bypass="$(get_policy_value "$POLICY_CONF" "ENABLE_NDPI_BYPASS")"
+    project_ndpi_security="$(get_policy_value "$POLICY_CONF" "ENABLE_NDPI_SECURITY")"
     project_auto_update="$(get_policy_value "$POLICY_CONF" "ENABLE_AUTO_UPDATE")"
     active_yaml="$(get_active_yaml)"
 
@@ -209,16 +210,22 @@ run_status() {
         websocket_status="disabled"
     fi
 
-    if [ -f "$active_yaml" ] && grep -Fqx "  - route10-websocket.rules" "$active_yaml" 2>/dev/null; then
+    if [ -f "$active_yaml" ] && grep -Fq "route10-websocket.rules" "$active_yaml" 2>/dev/null; then
         websocket_rules_status="enabled"
     else
         websocket_rules_status="disabled"
     fi
 
-    if [ -f "$active_yaml" ] && grep -Fqx "  - route10-ndpi-bypass.rules" "$active_yaml" 2>/dev/null; then
+    if [ -f "$active_yaml" ] && grep -Fq "route10-ndpi-bypass.rules" "$active_yaml" 2>/dev/null; then
         ndpi_bypass_status="enabled"
     else
         ndpi_bypass_status="disabled"
+    fi
+
+    if [ -f "$active_yaml" ] && grep -Fq "route10-ndpi-security.rules" "$active_yaml" 2>/dev/null; then
+        ndpi_security_status="enabled"
+    else
+        ndpi_security_status="disabled"
     fi
 
     rules_line="$(grep 'rules successfully loaded' /var/log/suricata/suricata.log 2>/dev/null | tail -n 1 || true)"
@@ -255,6 +262,7 @@ run_status() {
     echo "Policy ENABLE_WEBSOCKET: ${project_websocket:-unavailable}"
     echo "Policy ENABLE_WEBSOCKET_RULES: ${project_ws_rules:-unavailable}"
     echo "Policy ENABLE_NDPI_BYPASS: ${project_ndpi_bypass:-unavailable}"
+    echo "Policy ENABLE_NDPI_SECURITY: ${project_ndpi_security:-unavailable}"
     echo "Policy ENABLE_AUTO_UPDATE: ${project_auto_update:-0}"
     if [ -n "$suricata_proc" ]; then
         echo "Suricata Process: running"
@@ -272,6 +280,7 @@ run_status() {
     echo "WebSocket Parser: ${websocket_status}"
     echo "WebSocket Rules: ${websocket_rules_status}"
     echo "nDPI Bypass Rules: ${ndpi_bypass_status}"
+    echo "nDPI Security Rules: ${ndpi_security_status}"
     echo "Rules: ${rules_line}"
     echo "Cron Update: ${cron_update}"
     echo "Cron Prune: ${cron_prune}"
