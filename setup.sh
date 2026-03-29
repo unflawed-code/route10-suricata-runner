@@ -15,6 +15,33 @@ POST_CFG_BLOCK_END="# END ${PROJECT_TAG}"
 POST_CFG_BLOCK_COMMENT="# Initialize optimized Suricata rule policy and configuration"
 VERSION_SCRIPT="${REMOTE_DIR}/scripts/version.sh"
 [ ! -f "$VERSION_SCRIPT" ] && VERSION_SCRIPT="${REMOTE_DIR}/version.sh"
+LOGROTATE_SRC="${REMOTE_DIR}/logrotate/route10-suricata-runner.conf"
+LOGROTATE_DST="/etc/logrotate.d/route10-suricata-runner"
+
+normalize_crlf_file() {
+    [ -f "$1" ] || return 0
+    sed -i 's/\r$//' "$1" 2>/dev/null || true
+}
+
+normalize_project_line_endings() {
+    local candidate
+
+    find "$REMOTE_DIR" -type f \
+        \( \
+            -name '*.sh' -o \
+            -name '*.conf' -o \
+            -name '*.rules' -o \
+            -name '*.yaml' -o \
+            -name '*.yml' -o \
+            -name '*.md' -o \
+            -name '*.txt' \
+        \) \
+        | while IFS= read -r candidate; do
+            normalize_crlf_file "$candidate"
+        done
+}
+
+normalize_project_line_endings
 
 if [ "${1:-}" = "-v" ] || [ "${1:-}" = "--version" ]; then
     if [ -f "$VERSION_SCRIPT" ]; then
@@ -137,6 +164,34 @@ ensure_runner_update_cron() {
     fi
 }
 
+install_logrotate_policy() {
+    [ -f "$LOGROTATE_SRC" ] || return 0
+
+    if ! cmp -s "$LOGROTATE_SRC" "$LOGROTATE_DST" 2>/dev/null; then
+        cp -f "$LOGROTATE_SRC" "$LOGROTATE_DST"
+        chmod 644 "$LOGROTATE_DST" 2>/dev/null || true
+        log "Installed logrotate policy at $LOGROTATE_DST"
+    fi
+}
+
+cleanup_legacy_logrotate_cron() {
+    [ -f "$CRON_FILE" ] || return 0
+
+    awk '
+        index($0, "/etc/logrotate.d/route10-suricata-runner") { next }
+        index($0, "logrotate.route10-suricata.state") { next }
+        { print }
+    ' "$CRON_FILE" > "${CRON_FILE}.tmp"
+
+    if ! cmp -s "$CRON_FILE" "${CRON_FILE}.tmp" 2>/dev/null; then
+        mv "${CRON_FILE}.tmp" "$CRON_FILE"
+        /etc/init.d/cron restart >/dev/null 2>&1 || true
+        log "Removed legacy 4-hour Route10 Suricata Runner logrotate cron entry."
+    else
+        rm -f "${CRON_FILE}.tmp"
+    fi
+}
+
 ensure_post_cfg_hook() {
     local tmp_clean="${POST_CFG}.clean"
     local tmp_final="${POST_CFG}.tmp"
@@ -254,6 +309,8 @@ chmod 755 "$POST_CFG"
 log "Ensuring nightly Suricata update cron integration..."
 ensure_suricata_update_cron
 ensure_runner_update_cron
+install_logrotate_policy
+cleanup_legacy_logrotate_cron
 
 log "Updating installed version in UCI..."
 if [ -f "$VERSION_SCRIPT" ]; then
