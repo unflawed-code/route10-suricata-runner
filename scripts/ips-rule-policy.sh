@@ -55,12 +55,6 @@ if [ -z "$RULES" ] || [ ! -f "$RULES" ]; then
     exit 1
 fi
 
-# If Suricata is running (UI enabled), do not interfere.
-if ps -w | grep -E 'Suricata-Main|/usr/bin/.suricata' | grep -v grep >/dev/null 2>&1; then
-    log "Suricata appears to be running. Disable it via UI or CLI before running this script."
-    exit 0
-fi
-
 log "Starting: rules='$RULES' inline=${IPS_INLINE} categories='${IPS_ALLOWED_CATEGORIES}'"
 
 # Run Python3 to analyze rules and perform in-place pruning
