@@ -75,6 +75,7 @@ To revert all system changes and stop Suricata:
 ```
 
 This script will:
+
 - Stop Suricata and the IPS daemon.
 - Restore original system scripts and rule policy handlers.
 - Remove project cron jobs and the boot persistence hook.
@@ -85,15 +86,14 @@ This script will:
 
 Upgrading from v1.x.x to v2.0.0 requires a manual configuration update and a fresh setup run to initialize the UCI version tracking.
 
-1. **Replace files**: Overwrite all files in your project directory with the v2.0.0 versions.
-2. **Update Config**: Add `ENABLE_AUTO_UPDATE=0` to your `ips-policy.conf` file.
-3. **Execute Setup**:
+1. **Replace files**: Overwrite all files in your project directory.
+2. **Execute Setup**:
 
    ```bash
    /bin/ash setup.sh
    ```
 
-4. **Verify**: Check `runner.sh status` to ensure all components are synced and the new update cron is visible.
+3. **Verify**: Check `runner.sh status` to ensure all components are synced and the new update cron is visible.
 
 ## CLI
 
