@@ -42,7 +42,7 @@ fi
 get_policy_value() {
     local key="$1"
     [ -f "$POLICY_CONF" ] || return 0
-    sed -n "s/^${key}=//p" "$POLICY_CONF" | tail -n 1 | tr -d '\r[:space:]'
+    sed -n "s/^${key}=//p" "$POLICY_CONF" | tail -n 1 | tr -d ' \n\r\t'
 }
 
 get_latest_version_tag() {

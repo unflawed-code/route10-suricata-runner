@@ -142,7 +142,7 @@ ensure_runner_update_cron() {
     [ -f "$policy_conf" ] || policy_conf="${REMOTE_DIR}/ips-policy.conf"
     
     local auto_update
-    auto_update=$(sed -n "s/^ENABLE_AUTO_UPDATE=//p" "$policy_conf" | tail -n 1 | tr -d '\r[:space:]')
+    auto_update=$(sed -n "s/^ENABLE_AUTO_UPDATE=//p" "$policy_conf" | tail -n 1 | tr -d ' \n\r\t')
     
     local target_cron="30 4 * * * /bin/ash ${REMOTE_DIR}/runner.sh update"
     [ -f "$CRON_FILE" ] || return 0

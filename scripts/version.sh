@@ -15,7 +15,7 @@ get_suricata_runner_version() {
 
 get_uci_version() {
     # $1 = key (version, suricata, vectorscan, ndpi)
-    uci -q get suricata-runner.system."$1" | tr -d '\r[:space:]' || true
+    uci -q get suricata-runner.system."$1" | tr -d ' \n\r\t' || true
 }
 
 print_suricata_runner_version() {

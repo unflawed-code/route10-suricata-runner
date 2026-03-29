@@ -46,7 +46,7 @@ log() {
 }
 
 normalize_flag() {
-    printf '%s' "${1:-0}" | tr -d '\r[:space:]'
+    printf '%s' "${1:-0}" | tr -d ' \n\r\t'
 }
 
 normalize_text() {
