@@ -192,7 +192,7 @@ check_and_update() {
         [ "$force" = "1" ] && log "Force update requested." || log "New version available: $latest_tag"
         perform_update "$latest_tag"
     else
-        log "No updates found for route10-suricata-runner."
+        log "No updates found."
     fi
 }
 
