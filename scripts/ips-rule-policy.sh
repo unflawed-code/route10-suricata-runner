@@ -55,12 +55,6 @@ if [ -z "$RULES" ] || [ ! -f "$RULES" ]; then
     exit 1
 fi
 
-# If Suricata is running (UI enabled), do not interfere.
-if ps -w | grep -E 'Suricata-Main|/usr/bin/.suricata' | grep -v grep >/dev/null 2>&1; then
-    log "Suricata appears to be running. Disable it via UI or CLI before running this script."
-    exit 0
-fi
-
 log "Starting: rules='$RULES' inline=${IPS_INLINE} categories='${IPS_ALLOWED_CATEGORIES}'"
 
 # Run Python3 to analyze rules and perform in-place pruning
@@ -95,7 +89,7 @@ with open(rules_file) as f:
         m_cls  = CLS_RE.search(raw)
 
         # Protocol filter (Suricata 8 on Route10 is very picky)
-        ALLOWED_PROTOS = {'tcp', 'udp', 'icmp', 'ip', 'http', 'tls', 'dns', 'http1', 'http2'}
+        ALLOWED_PROTOS = {'tcp', 'udp', 'icmp', 'ip', 'http', 'tls', 'dns', 'http1', 'http2', 'websocket'}
         proto_match = re.match(r'^\s*#?\s*(?:drop|alert|reject|pass)\s+(\S+)', line)
         if proto_match:
             proto = proto_match.group(1).lower()

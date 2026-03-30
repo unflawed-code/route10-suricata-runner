@@ -1,48 +1,56 @@
-# Route10 Suricata Policy Handler & CLI Automation
+# Route10 Suricata Runner
 
-This project provides a robust, automated solution for managing Suricata on Route10. It is specifically optimized for the Route10's 1GB RAM and offers flexible operation modes.
+This project provides a robust, automated solution for managing Suricata on Route10. It is specifically optimized for the Route10's 1GB RAM and offers flexible operation modes, including a custom high-performance Vectorscan runtime.
+
+- **Aggressive ET rule pruning**: Optimized for constrained hardware.
+- **Automatic switching**: Seamlessly toggles between `IDS + reactive blocking` and `inline IPS`.
+- **Custom high-performance runtime**: Packaged under `vectorscan-runtime.tar.xz` with:
+  - `Suricata 8.0.4`
+  - `Vectorscan 5.4.12`
+  - `nDPI 4.14`
 
 ## Features
 
+- **`runner.sh` CLI**: A canonical interface for all operations (setup, status, updates).
 - **Flexible Operation Modes**:
-  - **Pure CLI Mode (Recommended)**: Run Suricata independently with the Web UI **Disabled**. The script manually starts the `ips` daemon and the `suricata` engine with optimized settings for maximum stability.
-  - **Optimized UI Mode**: Keep Suricata **Enabled** in the Web UI. The script detects the system process, prunes the rules, and restarts the engine, allowing the use of the UI for status monitoring while still benefiting from memory optimizations.
-- **Configurable Security Categories**: Allows the user to select which security categories to keep active. Includes a recommended preset for home users that balances high protection with low memory usage.
+  - **Pure CLI Mode (Recommended)**: Run Suricata independently with the Web UI **Disabled** for maximum stability.
+  - **Optimized UI Mode**: Keep Suricata **Enabled** in the Web UI while benefiting from memory optimizations and rule pruning.
+- **Automated Updates**: Daily automated script and rule updates via GitHub (at 4:30 AM) with atomic rollback protection.
+- **UCI Version Validation**: System-level tracking of Runner, Suricata, Vectorscan, and nDPI versions via OpenWrt's UCI database.
 - **Automatic Patching**: Patches the system's `suricatad.sh` and `suricata-update.sh` to prevent memory-heavy redundant update cycles (saving ~800MB RAM spikes).
-- **Runtime Hardening**: Disables file-oriented Suricata outputs such as `file-store`, `tcp-data`, `http-body-data`, and `pcap-log` to avoid `libmagic` crashes and tmpfs exhaustion under `/var/log/suricata`.
-- **Boot Integration**: Seamlessly integrates with the router's boot process via `/cfg/post-cfg.sh`.
-- **Reactive Blocking**: Retains the hardware's "Block Level" reactive firewall integration via the `ips` daemon.
-- **Flow Offload Management**: Automatically disables software and hardware flow offloading when `IPS_INLINE=1`, and restores the prior offload settings when switching back to `IPS_INLINE=0`.
-- **Multi-VLAN Support**: Automatically monitors all defined LAN interfaces (`br-lan`, `br-lan_2`, etc.).
+- **Runtime Hardening**: Disables crash-prone and memory-heavy Suricata outputs like `file-store` and `pcap-log`.
+- **Boot Integration**: Seamlessly integrates with the router's boot process via `/cfg/post-cfg.sh` (Enabled by default).
 
 ## Installation
 
-### 1. Upload Files
+Upload the project files to your router (e.g., to `/cfg/suricata-runner/`):
 
-Upload the project files to your router (e.g., to `/cfg/suricata-runner/` or any directory of your choice):
+### Required Files
 
+- `runner.sh`
 - `setup.sh`
 - `ips-policy.conf`
+- `vectorscan-runtime.tar.xz`
+- `rules/route10-websocket.rules.template`
+- `rules/route10-ndpi-bypass.rules.template`
+- `rules/route10-ndpi-security.rules.template`
 - `scripts/start.sh`
 - `scripts/boot-prune.sh`
 - `scripts/ips-rule-policy.sh`
 - `scripts/post-update-prune.sh`
 - `scripts/suricata-update.sh`
+- `scripts/updater.sh`
+- `scripts/vectorscan-runtime.sh`
+- `scripts/version.sh`
 
-> **Note**: On the router, all these files can reside in a flat directory or maintain the `scripts/` structure; `setup.sh` will auto-detect their location.
-
-### 2. Set Permissions
-
-Login to your router via SSH, navigate to your upload directory, and set the appropriate permissions:
+### 1. Set Permissions
 
 ```bash
-cd /path/to/your/upload
+cd /cfg/suricata-runner
 chmod 700 *.sh scripts/*.sh 2>/dev/null || chmod 700 *.sh
 ```
 
-### 3. Run Setup
-
-Execute the setup script from within your upload directory:
+### 2. Run Setup
 
 ```bash
 /bin/ash setup.sh
@@ -50,123 +58,113 @@ Execute the setup script from within your upload directory:
 
 This will:
 
-1. Patch `/usr/bin/suricatad.sh` and `/usr/bin/suricata-update.sh` to fix memory spike bugs.
-2. Create the `/var/lib/suricata` and `/var/run/suricata` prerequisites.
-3. Configure `/cfg/post-cfg.sh` (as a commented entry) to ensure persistence after reboot.
-4. Trigger the initial rule pruning and restart Suricata.
+1. Extract `vectorscan-runtime.tar.xz` into `/a/suricata-vectorscan`.
+2. Patch system scripts to fix memory spike bugs.
+3. Install/update the managed startup hook in `/cfg/post-cfg.sh` (**Enabled by default**).
+4. Canonicalize nightly Suricata and Runner update cron entries.
+5. Initialize local `.rules` files from `.template` if they don't already exist.
+6. Synchronize all version info (Runner, Suricata, nDPI, Vectorscan) to UCI.
+7. Trigger the initial rule pruning and start Suricata.
 
-> **Important**: After running `setup.sh`, you MUST manually edit `/cfg/post-cfg.sh` and uncomment the `start.sh` line to enable persistence across reboots.
+## Rule Persistence
 
-## Verification
+## Rule Management & Persistence
 
-After installation, you can verify the system status and determine your active blocking mode.
+The rule management system is designed to protect your local customizations while providing a stable, versioned baseline:
 
-### 1. Check if Suricata is Running
+- **Initialization Options**:
+  - **Automatic (Recommended)**: Running `setup.sh` will automatically detect any missing `.rules` files in the `rules/` directory and create them from the corresponding `.rules.template` reference.
+  - **Manual**: You can manually copy any `rules/*.rules.template` to `rules/*.rules` if you wish to seed them before the initial setup.
 
-Run the following command to see the active Suricata engine:
+- **Custom Rules**: Once the `.rules` file exists, you should perform all your custom rule additions directly in that file. Use standard Suricata rule syntax.
 
-```bash
-ps -w | grep Suricata-Main
-```
+- **Update Safety**: Since these files aren't in the project repo, a `runner.sh update` will **never** overwrite your custom rule definitions. The update package only contains the `.template` references.
 
-If active, you will see a process line for `suricata`.
+> [!TIP]
+> To reset a specific rule set (e.g., nDPI bypass) to its original factory state, simply delete the `.rules` file and run `setup.sh` again to re-seed it from the template.
 
-### 2. Identify the Active Blocking Mode
+## Uninstallation
 
-The blocking behavior depends on the `IPS_INLINE` setting in `ips-policy.conf`:
-
-#### **Mode A: Reactive Blocking (IPS_INLINE=0)**
-
-*Recommended for Route10 (lowest latency).* Suricata runs as an IDS and sends alerts to the `ips` daemon, which then dynamically blocks the IP in the firewall.
-
-- **Verify Daemon**: `ps -w | grep "/usr/sbin/ips"` should show the reactive daemon running.
-- **Verify Connection**: `grep "eve-log output device (unix_dgram) initialized: /var/run/ips.sock" /var/log/suricata/suricata.log` confirms Suricata is talking to the daemon.
-
-#### **Mode B: Inline IPS (IPS_INLINE=1)**
-
-Suricata runs directly in the packet path using NFQUEUE and drops packets in real-time.
-
-- **Verify Engine Mode**: `grep "NFQ running in standard ACCEPT/DROP mode" /var/log/suricata/suricata.log` confirms inline operation.
-- **Firewall Compatibility**: The runner disables `flow_offloading` and `flow_offloading_hw` before starting NFQUEUE mode, then reloads the firewall. This is required for true inline inspection, but it can briefly disrupt tunnels or sessions during the reload.
-
-### 3. Check for Active Blocks
-
-To see if any IPs are currently blocked by the reactive daemon:
+To revert all system changes and stop Suricata:
 
 ```bash
-iptables -L ips -v -n
+/bin/ash scripts/uninstall.sh
 ```
 
-The `ips` chain will list active drops if a threat has been detected and blocked.
+This script will:
+
+- Stop Suricata and the IPS daemon.
+- Restore original system scripts and rule policy handlers.
+- Remove project cron jobs and the boot persistence hook.
+- Clean up custom firewall rules and UCI configuration.
+- Delete the Vectorscan runtime at `/a/suricata-vectorscan`.
+
+## Migration (v1.x.x -> v2.0.0)
+
+Upgrading from v1.x.x to v2.0.0 introduces the **Rule Template** system and **UCI Version Tracking**.
+
+1. **Backup Config**: Save a copy of your current `ips-policy.conf`.
+2. **Replace Files**: Overwrite all project files.
+   - *Note*: Existing `.rules` files in the `rules/` directory are **preserved** by `setup.sh`. You will be responsible for setting your own rules.
+3. **Execute Setup**:
+
+   ```bash
+   /bin/ash setup.sh
+   ```
+
+4. **Merge Config**: Compare your backed-up `ips-policy.conf` with the new one and adjust accordingly.
+5. **Verify**: Run `runner.sh status` to ensure all versions are synced to UCI.
+
+## CLI
+
+`runner.sh` is the primary interface for managing the system.
+
+```bash
+/bin/ash runner.sh apply         # Re-read policy and restart Suricata
+/bin/ash runner.sh status        # View operational summary and version sync
+/bin/ash runner.sh update        # Manually check for GitHub updates
+/bin/ash runner.sh update --force # Force re-installation of the latest version
+/bin/ash runner.sh version       # Show detailed version information
+```
+
+## Policy
+
+Configuration is managed in `ips-policy.conf`.
+
+### Core Settings
+
+- `IPS_ENABLED=1`: Default is 1. Global toggle.
+- `IPS_INLINE=0`: Reactive Blocking (IDS mode - recommended for speed).
+- `IPS_INLINE=1`: Default. Inline IPS (NFQUEUE mode - real-time drops).
+
+### Feature Toggles
+
+- `ENABLE_NDPI=1`: Default is 1. Loads the nDPI application-aware plugin.
+- `ENABLE_WEBSOCKET=1`: Default is 1. Enables the WebSocket app-layer parser.
+- `ENABLE_AUTO_UPDATE=0`: Default is disabled. Set this to 1 to enable daily automated updates from GitHub.
 
 ## Optimization Results
 
-This project significantly reduces the resource footprint of Suricata on the Route10:
+- **Rule Reduction**: Typically reduces the ruleset from ~65,000 rules down to **~7,000 active rules** (an ~89% reduction).
+- **Memory Stability**: Pruning and patching prevents OOM (Out Of Memory) kills common with default settings.
+- **Performance**: Custom Vectorscan integration provides high-speed pattern matching.
 
-- **Rule Reduction**: Typically reduces the ruleset from ~65,000 rules down to **~7,700 active rules** (an ~88% reduction).
-- **Memory Stability**: By pruning unnecessary categories and patching redundant update cycles, RAM spikes are curtailed, preventing the OOM (Out Of Memory) kills common with the default configuration.
-- **Latency**: Reactive blocking (IDS mode) avoids the overhead of inline packet processing while still providing dynamic firewall protection.
+## Verification
 
-## Configuration
-
-All configuration is managed in `/cfg/suricata-runner/ips-policy.conf`.
-
-### Key Settings
-
-- `IPS_ENABLED=1`: Must be set to 1 for the script to run.
-- `IPS_INLINE=0`: Set to 0 for IDS mode with Reactive Blocking (recommended for speed).
-- `IPS_ALLOWED_CATEGORIES`: Define which threats to track.
-
-## How It Works
-
-1. **Boot**: `/cfg/post-cfg.sh` runs at startup and triggers `boot-prune.sh` with a 120s delay.
-2. **Safety Wait**: The script waits for the router to finish its "busy" boot phase.
-3. **Symlink Recovery**: It restores volatile symlinks needed for Suricata rules.
-4. **Pruning**: `ips-rule-policy.sh` (Python-based) comments out unnecessary rules to save RAM.
-5. **Auto-Start/Optimize**:
-   - If UI is **Enabled**: It restarts the system wrapper to apply pruned rules.
-   - If UI is **Disabled**: It manually starts the `ips` daemon and `suricata` engine directly. `IPS_INLINE=0` uses IDS plus reactive blocking, while `IPS_INLINE=1` uses NFQUEUE inline IPS.
-6. **Offload Handling**:
-   - `IPS_INLINE=1`: The runner saves the current firewall offload settings, disables flow offloading, reloads the firewall, and then starts NFQUEUE mode.
-   - `IPS_INLINE=0`: The runner restores the previously saved offload settings and reloads the firewall before starting IDS plus reactive blocking.
-
-## Troubleshooting
-
-### Check Status
+Check the system status to verify your active mode and version sync:
 
 ```bash
-# Check memory usage
-free -m
-
-# Check if Suricata engine is active
-ps -w | grep Suricata-Main
-
-# Check rule loading status
-grep "rules successfully loaded" /var/log/suricata/suricata.log | tail -n 1
+/bin/ash runner.sh status
 ```
 
-### Manual Trigger
+It reports:
 
-If you want to force a re-prune and restart without rebooting:
-
-```bash
-/bin/ash /cfg/suricata-runner/boot-prune.sh 0 # number of seconds, defaults to 60 if not provided
-```
-
-## File Structure (Repository)
-
-```text
-/
-├── setup.sh               # One-time installation and persistence setup
-├── ips-policy.conf        # User configuration (categories, mode)
-├── scripts/
-│   ├── start.sh           # Boot wrapper for persistence
-│   ├── boot-prune.sh      # Background automation (runs on every boot)
-│   ├── ips-rule-policy.sh # Optimized rule pruner (Python3)
-│   ├── post-update-prune.sh # Post-update maintenance
-│   └── suricata-update.sh  # Update wrapper
-└── tests/                 # Test suite
-```
+- Current project directory.
+- Version status (with UCI sync validation).
+- Process status (Suricata, IPS daemon).
+- Active Matcher (e.g., `mpm-hs active`).
+- Plugin and Parser states.
+- Cron job wiring and Boot Hook status.
 
 ## License
 

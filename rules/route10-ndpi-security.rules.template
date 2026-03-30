@@ -1,0 +1,20 @@
+# Route10-managed nDPI security rules.
+# These rules use the nDPI risk-based detection features.
+# This file is only loaded if ENABLE_NDPI_SECURITY=1 in ips-policy.conf.
+
+# --- Severe Risks (Alert/Block) ---
+alert ip any any <> any any (msg:"Route10 nDPI security: malware host contacted"; ndpi-risk:NDPI_MALWARE_HOST_CONTACTED; sid:2920001; rev:2;)
+alert ip any any <> any any (msg:"Route10 nDPI security: possible exploit detected"; ndpi-risk:NDPI_POSSIBLE_EXPLOIT; sid:2920002; rev:2;)
+alert ip any any <> any any (msg:"Route10 nDPI security: obfuscated traffic detected"; ndpi-risk:NDPI_OBFUSCATED_TRAFFIC; sid:2920003; rev:2;)
+
+# --- Anomalies & Covert Channels ---
+alert ip any any <> any any (msg:"Route10 nDPI security: unresolved hostname (possible DNS bypass)"; ndpi-risk:NDPI_UNRESOLVED_HOSTNAME; sid:2920010; rev:2;)
+alert ip any any <> any any (msg:"Route10 nDPI security: ALPN/SNI mismatch"; ndpi-risk:NDPI_TLS_ALPN_SNI_MISMATCH; sid:2920011; rev:2;)
+alert ip any any <> any any (msg:"Route10 nDPI security: periodic flow (possible beacon)"; ndpi-risk:NDPI_PERIODIC_FLOW; sid:2920012; rev:2;)
+
+# --- Information & Compliance ---
+alert ip any any <> any any (msg:"Route10 nDPI security: clear-text credentials"; ndpi-risk:NDPI_CLEAR_TEXT_CREDENTIALS; sid:2920020; rev:2;)
+alert ip any any <> any any (msg:"Route10 nDPI security: binary data transfer"; ndpi-risk:NDPI_BINARY_DATA_TRANSFER; sid:2920021; rev:2;)
+alert ip any any <> any any (msg:"Route10 nDPI security: probing attempt"; ndpi-risk:NDPI_PROBING_ATTEMPT; sid:2920022; rev:2;)
+
+# Want to add more? Refer to ndpi-security-library.md for a full list of rules.
