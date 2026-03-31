@@ -145,8 +145,8 @@ Configuration is managed in `ips-policy.conf`.
 
 ## Optimization Results
 
-- **Rule Reduction**: Typically reduces the ruleset from ~65,000 rules down to **~7,000 active rules** (an ~89% reduction).
-- **Memory Stability**: Pruning and patching prevents OOM (Out Of Memory) kills common with default settings.
+- **Rule Reduction**: The `ips-policy.conf` allows configuring specific threat categories to load. Activating only a few critical categories can drastically reduce the active ruleset, saving significant memory rather than loading all ~65,000 rules from the Emerging Threats (ET) ruleset.
+- **Memory Stability**: Patching Route10's `suricata-update.sh` prevents a redundant update bug that causes ~800MB RAM spikes. Combined with disabling heavy logging features, this prevents OOM (Out Of Memory) crashes on 1GB routers.
 - **Performance**: Custom Vectorscan integration provides high-speed pattern matching.
 
 ## Verification
