@@ -21,6 +21,9 @@ GITHUB_REPO="unflawed-code/route10-suricata-runner"
 LATEST_RELEASE_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
 ALL_RELEASES_URL="https://api.github.com/repos/${GITHUB_REPO}/releases"
 WEB_LATEST_URL="https://github.com/${GITHUB_REPO}/releases/latest"
+SELF_SHELL="/bin/ash"
+[ -x "$SELF_SHELL" ] || SELF_SHELL="/bin/sh"
+ORIGINAL_ARGS="$*"
 
 # Emergency tracking state for trap
 UPDATE_SUCCESS=0
@@ -28,7 +31,7 @@ UPDATE_TMP_DIR=""
 UPDATE_BACKUP_DIR=""
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] updater: $*" | tee -a "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] updater: $*" | tee -a "$LOG_FILE" >&2
 }
 
 # Source local version
@@ -45,26 +48,31 @@ get_policy_value() {
     sed -n "s/^${key}=//p" "$POLICY_CONF" | tail -n 1 | tr -d ' \n\r\t'
 }
 
+fetch_url() {
+    local url="$1"
+    if command -v wget >/dev/null 2>&1; then
+        wget --no-check-certificate -qO- "$url"
+    elif command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url"
+    else
+        return 1
+    fi
+}
+
+extract_first_tag() {
+    tr '{' '\n' | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+}
+
 get_latest_version_tag() {
     local tag=""
     local enable_beta
     enable_beta=$(get_policy_value "ENABLE_BETA_UPDATES")
-    
+
     # Method 1: GitHub API (Primary)
     if [ "$enable_beta" = "1" ]; then
-        # Fetch first item from all releases (includes pre-releases)
-        if command -v wget >/dev/null 2>&1; then
-            tag=$(wget --no-check-certificate -qO- "$ALL_RELEASES_URL" | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p' | head -n 1)
-        elif command -v curl >/dev/null 2>&1; then
-            tag=$(curl -s "$ALL_RELEASES_URL" | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p' | head -n 1)
-        fi
+        tag=$(fetch_url "$ALL_RELEASES_URL" | extract_first_tag || true)
     else
-        # Stable only
-        if command -v wget >/dev/null 2>&1; then
-            tag=$(wget --no-check-certificate -qO- "$LATEST_RELEASE_URL" | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p' | head -n 1)
-        elif command -v curl >/dev/null 2>&1; then
-            tag=$(curl -s "$LATEST_RELEASE_URL" | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p' | head -n 1)
-        fi
+        tag=$(fetch_url "$LATEST_RELEASE_URL" | extract_first_tag || true)
     fi
 
     # Method 2: Fallback to Redirect (No API rate limits, Stable ONLY)
@@ -207,7 +215,11 @@ perform_update() {
         cp -f "$new_updater" "$0"
         chmod +x "$0"
         log "Restarting updater to use the latest application logic..."
-        exec /bin/ash "$0" "$@"
+        if [ -n "$ORIGINAL_ARGS" ]; then
+            exec "$SELF_SHELL" "$0" $ORIGINAL_ARGS
+        else
+            exec "$SELF_SHELL" "$0"
+        fi
     fi
 
     log "Applying update files..."

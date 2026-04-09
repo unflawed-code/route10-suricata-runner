@@ -53,6 +53,61 @@ normalize_text() {
     printf '%s' "${1:-}" | tr -d '\r'
 }
 
+is_valid_cron_schedule() {
+    [ -n "${1:-}" ] || return 1
+    printf '%s\n' "$1" | awk '
+        function isnum(v) { return v ~ /^[0-9]+$/ }
+        function check_token(tok, min, max,    base, step, pair) {
+            base = tok
+            step = ""
+            if (index(tok, "/")) {
+                split(tok, pair, "/")
+                if (length(pair[1]) == 0 || length(pair[2]) == 0) return 0
+                base = pair[1]
+                step = pair[2]
+                if (!isnum(step) || step < 1) return 0
+            }
+            if (base == "*") return 1
+            if (index(base, "-")) {
+                split(base, pair, "-")
+                if (length(pair[1]) == 0 || length(pair[2]) == 0) return 0
+                if (!isnum(pair[1]) || !isnum(pair[2])) return 0
+                if (pair[1] < min || pair[1] > max || pair[2] < min || pair[2] > max) return 0
+                return (pair[1] <= pair[2])
+            }
+            if (isnum(base)) return (base >= min && base <= max)
+            return 0
+        }
+        function check_field(field, min, max,    i, n, parts) {
+            n = split(field, parts, ",")
+            if (n < 1) return 0
+            for (i = 1; i <= n; i++) {
+                if (!check_token(parts[i], min, max)) return 0
+            }
+            return 1
+        }
+        NF != 5 { exit 1 }
+        !check_field($1, 0, 59) { exit 1 }
+        !check_field($2, 0, 23) { exit 1 }
+        !check_field($3, 1, 31) { exit 1 }
+        !check_field($4, 1, 12) { exit 1 }
+        !check_field($5, 0, 7)  { exit 1 }
+        { exit 0 }
+    ' >/dev/null 2>&1
+}
+
+cron_or_default() {
+    local candidate="$1"
+    local fallback="$2"
+    local label="$3"
+    if is_valid_cron_schedule "$candidate"; then
+        printf '%s' "$candidate"
+    else
+        [ -n "$candidate" ] && log "Invalid ${label} cron '$candidate'; using '$fallback'."
+        printf '%s' "$fallback"
+    fi
+}
+
 resolve_suricata_bin() {
     local candidate
     if [ -x "$VECTORSCAN_WRAPPER" ]; then
@@ -385,14 +440,18 @@ cleanup_nfq_rules() {
 ensure_runner_update_cron() {
     local cron_file="/etc/crontabs/root"
     local auto_update
+    local runner_update_cron
     auto_update="$(normalize_flag "${ENABLE_AUTO_UPDATE:-0}")"
-    local target_cron="30 4 * * * /bin/ash ${REMOTE_DIR}/runner.sh update"
+    runner_update_cron="$(normalize_text "${RUNNER_UPDATE_CRON:-30 4 * * *}")"
+    [ -n "$runner_update_cron" ] || runner_update_cron="30 4 * * *"
+    runner_update_cron="$(cron_or_default "$runner_update_cron" "30 4 * * *" "RUNNER_UPDATE_CRON")"
+    local target_cron="${runner_update_cron} /bin/ash ${REMOTE_DIR}/runner.sh update"
     
     [ -f "$cron_file" ] || return 0
 
     if [ "$auto_update" = "1" ]; then
         if ! grep -Fqx "$target_cron" "$cron_file" 2>/dev/null; then
-            log "Enabling automated runner updates in cron (daily at 4:30 AM)..."
+            log "Enabling automated runner updates in cron ($runner_update_cron)..."
             (grep -Fv "runner.sh update" "$cron_file" 2>/dev/null || true; echo "$target_cron") > "${cron_file}.tmp"
             mv "${cron_file}.tmp" "$cron_file"
             /etc/init.d/cron restart >/dev/null 2>&1 || true

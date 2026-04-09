@@ -72,6 +72,87 @@ log() {
     echo "[setup] $1"
 }
 
+get_policy_value() {
+    local key="$1"
+    local default_value="$2"
+    local policy_conf="/etc/suricata/ips-policy.conf"
+    local value
+
+    [ -f "$policy_conf" ] || policy_conf="${REMOTE_DIR}/ips-policy.conf"
+    [ -f "$policy_conf" ] || {
+        printf '%s' "$default_value"
+        return 0
+    }
+
+    value="$(sed -n "s/^${key}=//p" "$policy_conf" | tail -n 1 | tr -d '\r')"
+    value="$(printf '%s' "$value" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//")"
+    value="${value#\"}"
+    value="${value%\"}"
+    value="${value#\'}"
+    value="${value%\'}"
+
+    if [ -n "$value" ]; then
+        printf '%s' "$value"
+    else
+        printf '%s' "$default_value"
+    fi
+}
+
+is_valid_cron_schedule() {
+    [ -n "${1:-}" ] || return 1
+    printf '%s\n' "$1" | awk '
+        function isnum(v) { return v ~ /^[0-9]+$/ }
+        function check_token(tok, min, max,    base, step, pair) {
+            base = tok
+            step = ""
+            if (index(tok, "/")) {
+                split(tok, pair, "/")
+                if (length(pair[1]) == 0 || length(pair[2]) == 0) return 0
+                base = pair[1]
+                step = pair[2]
+                if (!isnum(step) || step < 1) return 0
+            }
+            if (base == "*") return 1
+            if (index(base, "-")) {
+                split(base, pair, "-")
+                if (length(pair[1]) == 0 || length(pair[2]) == 0) return 0
+                if (!isnum(pair[1]) || !isnum(pair[2])) return 0
+                if (pair[1] < min || pair[1] > max || pair[2] < min || pair[2] > max) return 0
+                return (pair[1] <= pair[2])
+            }
+            if (isnum(base)) return (base >= min && base <= max)
+            return 0
+        }
+        function check_field(field, min, max,    i, n, parts) {
+            n = split(field, parts, ",")
+            if (n < 1) return 0
+            for (i = 1; i <= n; i++) {
+                if (!check_token(parts[i], min, max)) return 0
+            }
+            return 1
+        }
+        NF != 5 { exit 1 }
+        !check_field($1, 0, 59) { exit 1 }
+        !check_field($2, 0, 23) { exit 1 }
+        !check_field($3, 1, 31) { exit 1 }
+        !check_field($4, 1, 12) { exit 1 }
+        !check_field($5, 0, 7)  { exit 1 }
+        { exit 0 }
+    ' >/dev/null 2>&1
+}
+
+cron_or_default() {
+    local candidate="$1"
+    local fallback="$2"
+    local label="$3"
+    if is_valid_cron_schedule "$candidate"; then
+        printf '%s' "$candidate"
+    else
+        [ -n "$candidate" ] && log "Invalid ${label} cron '$candidate'; using '$fallback'."
+        printf '%s' "$fallback"
+    fi
+}
+
 sync_managed_rules() {
     local src_dir="${REMOTE_DIR}/rules"
     [ -d "$src_dir" ] || return 0
@@ -101,8 +182,13 @@ sync_managed_rules() {
 }
 
 ensure_suricata_update_cron() {
-    local target_update="30 3 * * * /usr/bin/suricata-update --fail --no-test"
-    local target_prune="32 3 * * * ${POST_UPDATE_PRUNE_SCRIPT}"
+    local update_cron prune_cron target_update target_prune
+    update_cron="$(get_policy_value "SURICATA_UPDATE_CRON" "30 3 * * *")"
+    prune_cron="$(get_policy_value "POST_UPDATE_PRUNE_CRON" "32 3 * * *")"
+    update_cron="$(cron_or_default "$update_cron" "30 3 * * *" "SURICATA_UPDATE_CRON")"
+    prune_cron="$(cron_or_default "$prune_cron" "32 3 * * *" "POST_UPDATE_PRUNE_CRON")"
+    target_update="${update_cron} /usr/bin/suricata-update --fail --no-test"
+    target_prune="${prune_cron} ${POST_UPDATE_PRUNE_SCRIPT}"
     [ -f "$CRON_FILE" ] || return 0
 
     awk -v target_update="$target_update" -v target_prune="$target_prune" '
@@ -144,7 +230,7 @@ ensure_suricata_update_cron() {
 
     if ! cmp -s "$CRON_FILE" "${CRON_FILE}.tmp" 2>/dev/null; then
         mv "${CRON_FILE}.tmp" "$CRON_FILE"
-        log "Canonicalized Suricata cron to run real suricata-update at 3:30 AM and post-update prune at 3:32 AM"
+        log "Canonicalized Suricata cron (update: $update_cron, prune: $prune_cron)"
         /etc/init.d/cron restart >/dev/null 2>&1 || true
     else
         rm -f "${CRON_FILE}.tmp"
@@ -152,18 +238,18 @@ ensure_suricata_update_cron() {
 }
 
 ensure_runner_update_cron() {
-    local policy_conf="/etc/suricata/ips-policy.conf"
-    [ -f "$policy_conf" ] || policy_conf="${REMOTE_DIR}/ips-policy.conf"
-    
     local auto_update
-    auto_update=$(sed -n "s/^ENABLE_AUTO_UPDATE=//p" "$policy_conf" | tail -n 1 | tr -d ' \n\r\t')
-    
-    local target_cron="30 4 * * * /bin/ash ${REMOTE_DIR}/runner.sh update"
+    local runner_update_cron
+    local target_cron
+    auto_update="$(get_policy_value "ENABLE_AUTO_UPDATE" "0" | tr -d ' \n\r\t')"
+    runner_update_cron="$(get_policy_value "RUNNER_UPDATE_CRON" "30 4 * * *")"
+    runner_update_cron="$(cron_or_default "$runner_update_cron" "30 4 * * *" "RUNNER_UPDATE_CRON")"
+    target_cron="${runner_update_cron} /bin/ash ${REMOTE_DIR}/runner.sh update"
     [ -f "$CRON_FILE" ] || return 0
 
     if [ "$auto_update" = "1" ]; then
         if ! grep -Fqx "$target_cron" "$CRON_FILE" 2>/dev/null; then
-            log "Enabling automated runner updates in cron (daily at 4:30 AM)..."
+            log "Enabling automated runner updates in cron ($runner_update_cron)..."
             (grep -Fv "runner.sh update" "$CRON_FILE" 2>/dev/null || true; echo "$target_cron") > "${CRON_FILE}.tmp"
             mv "${CRON_FILE}.tmp" "$CRON_FILE"
             /etc/init.d/cron restart >/dev/null 2>&1 || true
@@ -296,24 +382,79 @@ else
     log "Symlink to $SYSTEM_SCRIPT already exists."
 fi
 
-# Patch suricatad.sh to prevent redundant suricata-update call which consumes ~800MB RAM.
-if [ -f "/usr/bin/suricatad.sh" ]; then
-    if ! grep -q "# suricata-update --fail --no-test" "/usr/bin/suricatad.sh"; then
-        log "Patching /usr/bin/suricatad.sh to save memory..."
-        sed -i 's/suricata-update --fail --no-test/# suricata-update --fail --no-test/g' /usr/bin/suricatad.sh
-    fi
-fi
+has_disabled_suricata_update_call() {
+    grep -Eq '^[[:space:]]*#[[:space:]]*suricata-update[[:space:]]+--fail[[:space:]]+--no-test' "$1" 2>/dev/null
+}
 
-# Patch suricata-update.sh (cron script) to prevent redundant second update call.
-if [ -f "/usr/bin/suricata-update.sh" ]; then
-    # We only want to comment out the second occurrence (line 12 or similar)
-    # A safer way is to check if it's already patched and then use a specific sed pattern
-    if ! grep -q "# suricata-update --fail --no-test" "/usr/bin/suricata-update.sh"; then
-        log "Patching /usr/bin/suricata-update.sh to save memory during cron..."
-        # This sed pattern targets the second occurrence specifically
-        sed -i '0,/suricata-update --fail --no-test/! s/suricata-update --fail --no-test/# suricata-update --fail --no-test/' /usr/bin/suricata-update.sh
+count_active_suricata_update_calls() {
+    grep -Ec '^[[:space:]]*suricata-update[[:space:]]+--fail[[:space:]]+--no-test' "$1" 2>/dev/null || true
+}
+
+patch_suricatad_script() {
+    local script="/usr/bin/suricatad.sh"
+    local tmp_file
+
+    [ -f "$script" ] || return 0
+
+    if has_disabled_suricata_update_call "$script"; then
+        return 0
     fi
-fi
+
+    if [ "$(count_active_suricata_update_calls "$script")" -lt 1 ]; then
+        log "WARNING: /usr/bin/suricatad.sh no longer contains the expected suricata-update call; skipping patch."
+        return 0
+    fi
+
+    log "Patching /usr/bin/suricatad.sh to save memory..."
+    tmp_file="${script}.tmp"
+    awk '
+        /^[[:space:]]*suricata-update[[:space:]]+--fail[[:space:]]+--no-test/ {
+            print "# " $0
+            next
+        }
+        { print }
+    ' "$script" > "$tmp_file" && mv "$tmp_file" "$script"
+
+    if ! has_disabled_suricata_update_call "$script"; then
+        log "WARNING: Failed to patch /usr/bin/suricatad.sh; vendor script layout may have changed."
+    fi
+}
+
+patch_suricata_update_script() {
+    local script="/usr/bin/suricata-update.sh"
+    local tmp_file active_count
+
+    [ -f "$script" ] || return 0
+
+    active_count="$(count_active_suricata_update_calls "$script")"
+    if [ "$active_count" -le 1 ]; then
+        if [ "$active_count" -eq 1 ] || has_disabled_suricata_update_call "$script"; then
+            return 0
+        fi
+        log "WARNING: /usr/bin/suricata-update.sh no longer contains the expected duplicate suricata-update call; skipping patch."
+        return 0
+    fi
+
+    log "Patching /usr/bin/suricata-update.sh to save memory during cron..."
+    tmp_file="${script}.tmp"
+    awk '
+        /^[[:space:]]*suricata-update[[:space:]]+--fail[[:space:]]+--no-test/ {
+            seen++
+            if (seen > 1) {
+                print "# " $0
+                next
+            }
+        }
+        { print }
+    ' "$script" > "$tmp_file" && mv "$tmp_file" "$script"
+
+    if [ "$(count_active_suricata_update_calls "$script")" -gt 1 ]; then
+        log "WARNING: Failed to patch /usr/bin/suricata-update.sh; vendor script layout may have changed."
+    fi
+}
+
+patch_suricatad_script
+patch_suricata_update_script
 
 # Ensure persistence in post-cfg.sh
 log "Checking persistence hook in $POST_CFG..."

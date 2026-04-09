@@ -62,12 +62,12 @@ fi
 # 3. Revert patches to system scripts
 if [ -f "/usr/bin/suricatad.sh" ]; then
     log "Reverting patches in /usr/bin/suricatad.sh..."
-    sed -i 's/# suricata-update --fail --no-test/suricata-update --fail --no-test/g' /usr/bin/suricatad.sh
+    sed -i '/^[[:space:]]*#[[:space:]]*suricata-update[[:space:]]\+--fail[[:space:]]\+--no-test/s/^[[:space:]]*#[[:space:]]*//' /usr/bin/suricatad.sh
 fi
 
 if [ -f "/usr/bin/suricata-update.sh" ]; then
     log "Reverting patches in /usr/bin/suricata-update.sh..."
-    sed -i 's/# suricata-update --fail --no-test/suricata-update --fail --no-test/g' /usr/bin/suricata-update.sh
+    sed -i '/^[[:space:]]*#[[:space:]]*suricata-update[[:space:]]\+--fail[[:space:]]\+--no-test/s/^[[:space:]]*#[[:space:]]*//' /usr/bin/suricata-update.sh
 fi
 
 # 4. Remove persistence hook from post-cfg.sh

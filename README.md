@@ -15,7 +15,7 @@ This project provides a robust, automated solution for managing Suricata on Rout
 - **Flexible Operation Modes**:
   - **Pure CLI Mode (Recommended)**: Run Suricata independently with the Web UI **Disabled** for maximum stability.
   - **Optimized UI Mode**: Keep Suricata **Enabled** in the Web UI while benefiting from memory optimizations and rule pruning.
-- **Automated Updates**: Daily automated script and rule updates via GitHub (at 4:30 AM) with atomic rollback protection.
+- **Automated Updates**: Daily automated script and rule updates via GitHub with atomic rollback protection. Schedule is configurable in `ips-policy.conf`.
 - **UCI Version Validation**: System-level tracking of Runner, Suricata, Vectorscan, and nDPI versions via OpenWrt's UCI database.
 - **Automatic Patching**: Patches the system's `suricatad.sh` and `suricata-update.sh` to prevent memory-heavy redundant update cycles (saving ~800MB RAM spikes).
 - **Runtime Hardening**: Disables crash-prone and memory-heavy Suricata outputs like `file-store` and `pcap-log`.
@@ -142,6 +142,9 @@ Configuration is managed in `ips-policy.conf`.
 - `ENABLE_NDPI=1`: Default is 1. Loads the nDPI application-aware plugin.
 - `ENABLE_WEBSOCKET=1`: Default is 1. Enables the WebSocket app-layer parser.
 - `ENABLE_AUTO_UPDATE=0`: Default is disabled. Set this to 1 to enable daily automated updates from GitHub.
+- `RUNNER_UPDATE_CRON="30 4 * * *"`: Cron schedule for `runner.sh update` when auto-update is enabled.
+- `SURICATA_UPDATE_CRON="30 3 * * *"`: Cron schedule for nightly `suricata-update`.
+- `POST_UPDATE_PRUNE_CRON="32 3 * * *"`: Cron schedule for the post-update prune pass.
 
 ## Optimization Results
 
