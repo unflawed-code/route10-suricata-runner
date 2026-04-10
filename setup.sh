@@ -72,6 +72,15 @@ log() {
     echo "[setup] $1"
 }
 
+ensure_project_script_permissions() {
+    local script_path
+
+    find "$REMOTE_DIR" -type f -name '*.sh' | while IFS= read -r script_path; do
+        [ -f "$script_path" ] || continue
+        chmod 700 "$script_path" 2>/dev/null || chmod +x "$script_path" 2>/dev/null || true
+    done
+}
+
 get_policy_value() {
     local key="$1"
     local default_value="$2"
@@ -349,17 +358,7 @@ ensure_post_cfg_hook() {
 }
 
 log "Setting permissions on scripts..."
-[ -f "$CUSTOM_SCRIPT" ] && chmod +x "$CUSTOM_SCRIPT"
-[ -f "$BOOT_PRUNE_SCRIPT" ] && chmod +x "$BOOT_PRUNE_SCRIPT"
-[ -f "$START_WRAPPER" ] && chmod +x "$START_WRAPPER"
-[ -f "$POST_UPDATE_PRUNE_SCRIPT" ] && chmod +x "$POST_UPDATE_PRUNE_SCRIPT"
-[ -f "$VECTORSCAN_HELPER" ] && chmod +x "$VECTORSCAN_HELPER"
-[ -f "$VERSION_SCRIPT" ] && chmod +x "$VERSION_SCRIPT"
-[ -f "${REMOTE_DIR}/scripts/updater.sh" ] && chmod +x "${REMOTE_DIR}/scripts/updater.sh"
-[ -f "${REMOTE_DIR}/updater.sh" ] && chmod +x "${REMOTE_DIR}/updater.sh"
-# Also handle other scripts if present
-[ -f "${REMOTE_DIR}/scripts/suricata-update.sh" ] && chmod +x "${REMOTE_DIR}/scripts/suricata-update.sh"
-[ -f "${REMOTE_DIR}/suricata-update.sh" ] && chmod +x "${REMOTE_DIR}/suricata-update.sh"
+ensure_project_script_permissions
 
 if [ ! -f "$VECTORSCAN_HELPER" ]; then
     log "ERROR: Missing Vectorscan helper at $VECTORSCAN_HELPER"

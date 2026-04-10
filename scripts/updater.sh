@@ -143,6 +143,19 @@ cleanup_trap() {
     fi
 }
 
+ensure_script_permissions() {
+    local target_dir="$1"
+    [ -d "$target_dir" ] || return 0
+
+    find "$target_dir" -type f -name '*.sh' | while IFS= read -r script; do
+        [ -f "$script" ] || continue
+        if [ ! -x "$script" ]; then
+            chmod 700 "$script"
+            log "Repaired execute permission on $script"
+        fi
+    done
+}
+
 # merge_policy_conf <new_conf_path> <user_backup_path>
 # Strategy: { ...newConf, ...userConf } — the new conf defines all keys
 # (including freshly added ones + updated comments), then every KEY=VALUE
@@ -213,7 +226,7 @@ perform_update() {
     if [ -f "$new_updater" ] && ! cmp -s "$0" "$new_updater" 2>/dev/null; then
         log "New updater logic detected. Self-updating before proceeding..."
         cp -f "$new_updater" "$0"
-        chmod +x "$0"
+        chmod 700 "$0"
         log "Restarting updater to use the latest application logic..."
         if [ -n "$ORIGINAL_ARGS" ]; then
             exec "$SELF_SHELL" "$0" $ORIGINAL_ARGS
@@ -234,7 +247,10 @@ perform_update() {
 
     # --- Stage 3: Merge ips-policy.conf (new keys kept, user values win) ---
     merge_policy_conf "$POLICY_CONF" "$user_conf_bak"
-    
+
+    # --- Stage 4: Ensure all shipped shell entry points remain executable ---
+    ensure_script_permissions "$REMOTE_DIR"
+
     log "Running setup and validating update..."
     if /bin/ash "${REMOTE_DIR}/setup.sh"; then
         log "Update to $tag verified and completed successfully."
