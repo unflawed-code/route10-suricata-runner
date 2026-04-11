@@ -19,6 +19,7 @@ VECTORSCAN_HELPER="${REMOTE_DIR}/scripts/vectorscan-runtime.sh"
 [ ! -f "$VECTORSCAN_HELPER" ] && VECTORSCAN_HELPER="${REMOTE_DIR}/vectorscan-runtime.sh"
 VECTORSCAN_RUNTIME_ROOT="/a/suricata-vectorscan"
 CRON_FILE="/etc/crontabs/root"
+UCI_CONFIG_FILE="/etc/config/suricata-runner"
 POST_UPDATE_PRUNE_SCRIPT="${REMOTE_DIR}/scripts/post-update-prune.sh"
 [ ! -f "$POST_UPDATE_PRUNE_SCRIPT" ] && POST_UPDATE_PRUNE_SCRIPT="${REMOTE_DIR}/post-update-prune.sh"
 RUNNER_SCRIPT="${REMOTE_DIR}/runner.sh"
@@ -198,6 +199,32 @@ fi
 if [ ! -d "$REMOTE_DIR" ] || [ ! -f "/usr/bin/suricata" ]; then
     log "Aborting: Environment missing at $REMOTE_DIR"
     exit 1
+fi
+
+# 3a. UCI Version Restore
+# After a firmware update, the UCI overlay is wiped but .setup_done persists on /cfg.
+# Detect this case and re-populate the volatile UCI version data without re-running
+# the full setup (archive extraction, patching, etc.).
+restore_uci_versions() {
+    local version_script="${REMOTE_DIR}/scripts/version.sh"
+    [ ! -f "$version_script" ] && version_script="${REMOTE_DIR}/version.sh"
+    [ -f "$version_script" ] || return 0
+    . "$version_script"
+    [ -f "$UCI_CONFIG_FILE" ] || touch "$UCI_CONFIG_FILE"
+    if ! uci -q get suricata-runner.system >/dev/null 2>&1; then
+        uci set suricata-runner.system=system
+    fi
+    uci set suricata-runner.system.version="$SURICATA_RUNNER_VERSION"
+    uci set suricata-runner.system.suricata="$SURICATA_BUNDLED_VERSION"
+    uci set suricata-runner.system.vectorscan="$VECTORSCAN_BUNDLED_VERSION"
+    uci set suricata-runner.system.ndpi="$NDPI_BUNDLED_VERSION"
+    uci commit suricata-runner
+    log "UCI version data restored after firmware update."
+}
+
+if ! uci -q get suricata-runner.system >/dev/null 2>&1; then
+    log "UCI version data missing (firmware update?). Restoring..."
+    restore_uci_versions
 fi
 
 . "$VECTORSCAN_HELPER" 2>/dev/null || {
