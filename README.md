@@ -7,7 +7,7 @@ This project provides a robust, automated solution for managing Suricata on Rout
 - **Custom high-performance runtime**: Packaged under `vectorscan-runtime.tar.xz` with:
   - `Suricata 8.0.4`
   - `Vectorscan 5.4.12`
-  - `nDPI 4.14`
+  - `nDPI 5.0`
 
 ## Features
 
