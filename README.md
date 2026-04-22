@@ -66,8 +66,6 @@ This will:
 6. Synchronize all version info (Runner, Suricata, nDPI, Vectorscan) to UCI.
 7. Trigger the initial rule pruning and start Suricata.
 
-## Rule Persistence
-
 ## Rule Management & Persistence
 
 The rule management system is designed to protect your local customizations while providing a stable, versioned baseline:
@@ -135,7 +133,9 @@ Configuration is managed in `ips-policy.conf`.
 
 - `IPS_ENABLED=1`: Default is 1. Global toggle.
 - `IPS_INLINE=0`: Reactive Blocking (IDS mode - recommended for speed).
-- `IPS_INLINE=1`: Default. Inline IPS (NFQUEUE mode - real-time drops).
+- `IPS_INLINE=1`: Default. Inline NFQUEUE mode.
+- `IPS_INLINE_BLOCK=1`: Default. Convert active kept inline `alert` rules to `drop` for real-time blocking.
+- `IPS_INLINE_BLOCK=0`: Keep inline NFQUEUE inspection active, but leave active rules as `alert` only.
 
 ### Feature Toggles
 
