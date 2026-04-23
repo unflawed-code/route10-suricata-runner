@@ -13,6 +13,8 @@ else
 fi
 VERSION_SCRIPT="${REMOTE_DIR}/scripts/version.sh"
 [ ! -f "$VERSION_SCRIPT" ] && VERSION_SCRIPT="${REMOTE_DIR}/version.sh"
+STREAM_FIX_HELPER="${REMOTE_DIR}/scripts/stream-fix.sh"
+[ ! -f "$STREAM_FIX_HELPER" ] && STREAM_FIX_HELPER="${REMOTE_DIR}/stream-fix.sh"
 
 if [ "${1:-}" = "-v" ] || [ "${1:-}" = "--version" ]; then
     if [ -f "$VERSION_SCRIPT" ]; then
@@ -44,6 +46,12 @@ log() {
     logger -t "$LOGTAG" "$@"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
+
+[ -f "$STREAM_FIX_HELPER" ] || {
+    echo "ERROR: Missing stream compatibility helper at $STREAM_FIX_HELPER" >&2
+    exit 1
+}
+. "$STREAM_FIX_HELPER"
 
 normalize_flag() {
     printf '%s' "${1:-0}" | tr -d ' \n\r\t'
@@ -437,6 +445,25 @@ cleanup_nfq_rules() {
     fi
 }
 
+stop_reactive_blocking() {
+    killall -9 ips 2>/dev/null || true
+    iptables -D forwarding_rule -j ips 2>/dev/null || true
+}
+
+ensure_reactive_blocking() {
+    if ! pgrep -f "/usr/sbin/ips -n 1 -b 1" >/dev/null; then
+        log "Starting ips daemon..."
+        /usr/sbin/ips -n 1 -b 1 -i 0 &
+        sleep 1
+    fi
+
+    iptables -N ips 2>/dev/null || true
+    if ! iptables -S forwarding_rule | grep -q " -j ips"; then
+        log "Connecting ips firewall chain..."
+        iptables -A forwarding_rule -j ips
+    fi
+}
+
 ensure_runner_update_cron() {
     local cron_file="/etc/crontabs/root"
     local auto_update
@@ -522,6 +549,8 @@ apply_performance_patches() {
             sed -i '/management-cpu-set:/a \    - worker-cpu-set:\n        cpu: [ 0, 1, 2, 3 ]\n        mode: exclusive' "$yaml"
         fi
 
+        apply_stream_stability_patches "$yaml"
+
         # Opt 6: Stats logging toggle
         if [ "$enable_stats" = "1" ]; then
             if ! grep -q "#AUTOGEN_STATS" "$yaml"; then
@@ -533,6 +562,21 @@ apply_performance_patches() {
 
         log "Applied performance patches to $yaml"
     done
+}
+
+prepare_inline_runtime() {
+    local enable_stats="$1"
+    ensure_inline_offload_state
+    stop_reactive_blocking
+    cleanup_nfq_rules
+    apply_nfq_rules
+    apply_performance_patches "$enable_stats"
+}
+
+prepare_ids_runtime() {
+    restore_offload_state
+    cleanup_nfq_rules
+    ensure_reactive_blocking
 }
 
 case "$DELAY" in
@@ -640,14 +684,42 @@ if is_running; then
     log "Suricata is running (UI enabled). Restarting to apply pruned rules."
     if [ -x /var/run/suricata.sh ]; then
         /var/run/suricata.sh stop || true
-            sleep 2
-            /var/run/suricata.sh start || true
-        else
-            kill_suricata
-            sleep 2
-        fi
+        sleep 2
+    else
+        kill_suricata
+        sleep 2
+    fi
+
+    if [ "$IPS_INLINE" = "1" ]; then
+        log "Applying inline runtime prerequisites before UI-managed restart."
+        prepare_inline_runtime "$ENABLE_STATS"
+    else
+        log "Applying IDS runtime prerequisites before UI-managed restart."
+        prepare_ids_runtime
+    fi
+
+    if [ -x /var/run/suricata.sh ]; then
+        /var/run/suricata.sh start || true
         log "prune complete; restarted via system paths"
         log_runtime_summary
+    else
+        log "UI wrapper missing after stop; falling back to direct startup."
+        if [ "$IPS_INLINE" = "1" ]; then
+            log "Mode startup: Inline IPS (NFQUEUE, 4 queues, workers)"
+            run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ips-nfq.yaml -q 0 -q 1 -q 2 -q 3 -D
+        else
+            IDS_ARGS=""
+            for iface in $LAN_IFACES; do
+                if [ -d "/sys/class/net/$iface" ]; then
+                    IDS_ARGS="$IDS_ARGS -i $iface"
+                fi
+            done
+            log "Mode startup: IDS ($IDS_ARGS)"
+            run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ids.yaml $IDS_ARGS -D
+        fi
+        log "prune complete; started in Pure CLI mode"
+        log_runtime_summary
+    fi
 else
     log "Suricata is NOT running (UI disabled). Starting in Pure CLI mode."
     kill_suricata
@@ -655,36 +727,13 @@ else
 
     if [ "$IPS_INLINE" = "1" ]; then
         log "Mode: Inline IPS (NFQUEUE)"
-        ensure_inline_offload_state
-        # Stop reactive daemon if it was running
-        killall -9 ips 2>/dev/null || true
-        # Clean up reactive iptables rule
-        iptables -D forwarding_rule -j ips 2>/dev/null || true
-
-        cleanup_nfq_rules
-        apply_nfq_rules
-
-        apply_performance_patches "$ENABLE_STATS"
+        prepare_inline_runtime "$ENABLE_STATS"
 
         log "Mode startup: Inline IPS (NFQUEUE, 4 queues, workers)"
         run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ips-nfq.yaml -q 0 -q 1 -q 2 -q 3 -D
     else
         log "Mode: Reactive Blocking (IDS + ips daemon)"
-        restore_offload_state
-        # Clean up NFQUEUE if it was running
-        cleanup_nfq_rules
-        
-        if ! pgrep -f "/usr/sbin/ips -n 1 -b 1" >/dev/null; then
-            log "Starting ips daemon..."
-            /usr/sbin/ips -n 1 -b 1 -i 0 &
-            sleep 1
-        fi
-
-        iptables -N ips 2>/dev/null || true
-        if ! iptables -S forwarding_rule | grep -q " -j ips"; then
-            log "Connecting ips firewall chain..."
-            iptables -A forwarding_rule -j ips
-        fi
+        prepare_ids_runtime
 
         # Build IDS args
         IDS_ARGS=""

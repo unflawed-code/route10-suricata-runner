@@ -38,6 +38,7 @@ Upload the project files to your router (e.g., to `/cfg/suricata-runner/`):
 - `scripts/boot-prune.sh`
 - `scripts/ips-rule-policy.sh`
 - `scripts/post-update-prune.sh`
+- `scripts/stream-fix.sh`
 - `scripts/suricata-update.sh`
 - `scripts/updater.sh`
 - `scripts/vectorscan-runtime.sh`

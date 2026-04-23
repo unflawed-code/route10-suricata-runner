@@ -16,15 +16,24 @@ DEFAULT_SURICATA_LIB_PATH=""
 VECTORSCAN_DIR="${REMOTE_DIR}/vectorscan"
 VECTORSCAN_WRAPPER="${VECTORSCAN_DIR}/bin/route10-suricata"
 VECTORSCAN_RUNTIME_ROOT="/a/suricata-vectorscan"
+STREAM_FIX_HELPER="${REMOTE_DIR}/scripts/stream-fix.sh"
+[ ! -f "$STREAM_FIX_HELPER" ] && STREAM_FIX_HELPER="${REMOTE_DIR}/stream-fix.sh"
 NDPI_PLUGIN_PATH="${VECTORSCAN_RUNTIME_ROOT}/lib/suricata/ndpi.so"
 RULES_DIR="/var/lib/suricata/rules"
 WEBSOCKET_RULE_FILE="route10-websocket.rules"
 NDPI_BYPASS_RULE_FILE="route10-ndpi-bypass.rules"
+NDPI_SECURITY_RULE_FILE="route10-ndpi-security.rules"
 
 log() {
     logger -t "$LOGTAG" "$@"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
+
+[ -f "$STREAM_FIX_HELPER" ] || {
+    echo "ERROR: Missing stream compatibility helper at $STREAM_FIX_HELPER" >&2
+    exit 1
+}
+. "$STREAM_FIX_HELPER"
 
 normalize_flag() {
     printf '%s' "${1:-0}" | tr -d ' \n\r\t'
@@ -124,7 +133,7 @@ sync_managed_rules() {
     [ -d "$src_dir" ] || return 0
     mkdir -p "$RULES_DIR"
 
-    for rule_file in "$WEBSOCKET_RULE_FILE" "$NDPI_BYPASS_RULE_FILE"; do
+    for rule_file in "$WEBSOCKET_RULE_FILE" "$NDPI_BYPASS_RULE_FILE" "$NDPI_SECURITY_RULE_FILE"; do
         if [ -f "${src_dir}/${rule_file}" ]; then
             cp -f "${src_dir}/${rule_file}" "${RULES_DIR}/${rule_file}"
         fi
@@ -182,12 +191,13 @@ ensure_telnet_detection() {
 }
 
 apply_feature_patches() {
-    local enable_ndpi enable_websocket enable_ws_rules enable_ndpi_bypass
+    local enable_ndpi enable_websocket enable_ws_rules enable_ndpi_bypass enable_ndpi_security
     local yaml
     enable_ndpi="$1"
     enable_websocket="$2"
     enable_ws_rules="$3"
     enable_ndpi_bypass="$4"
+    enable_ndpi_security="$5"
 
     for yaml in /usr/share/suricata/suricata-ids.yaml /usr/share/suricata/suricata-ips-nfq.yaml; do
         [ -f "$yaml" ] || continue
@@ -203,6 +213,7 @@ apply_feature_patches() {
         ensure_telnet_detection "$yaml"
         ensure_rule_file_entry "$yaml" "$WEBSOCKET_RULE_FILE" "$enable_ws_rules"
         ensure_rule_file_entry "$yaml" "$NDPI_BYPASS_RULE_FILE" "$enable_ndpi_bypass"
+        ensure_rule_file_entry "$yaml" "$NDPI_SECURITY_RULE_FILE" "$enable_ndpi_security"
     done
 }
 
@@ -307,6 +318,25 @@ cleanup_nfq_rules() {
     fi
 }
 
+stop_reactive_blocking() {
+    killall -9 ips 2>/dev/null || true
+    iptables -D forwarding_rule -j ips 2>/dev/null || true
+}
+
+ensure_reactive_blocking() {
+    if ! pgrep -f "/usr/sbin/ips -n 1 -b 1" >/dev/null; then
+        log "Starting ips daemon..."
+        /usr/sbin/ips -n 1 -b 1 -i 0 &
+        sleep 1
+    fi
+
+    iptables -N ips 2>/dev/null || true
+    if ! iptables -S forwarding_rule | grep -q " -j ips"; then
+        log "Connecting ips firewall chain..."
+        iptables -A forwarding_rule -j ips
+    fi
+}
+
 apply_nfq_rules() {
     local chain="IPS_NFQ"
     local queue_balance="0:3"
@@ -363,6 +393,8 @@ apply_performance_patches() {
             sed -i '/management-cpu-set:/a \    - worker-cpu-set:\n        cpu: [ 0, 1, 2, 3 ]\n        mode: exclusive' "$yaml"
         fi
 
+        apply_stream_stability_patches "$yaml"
+
         # Opt 6: Stats logging toggle
         if [ "$enable_stats" = "1" ]; then
             if ! grep -q "#AUTOGEN_STATS" "$yaml"; then
@@ -374,6 +406,21 @@ apply_performance_patches() {
 
         log "Applied performance patches to $yaml"
     done
+}
+
+prepare_inline_runtime() {
+    local enable_stats="$1"
+    ensure_inline_offload_state
+    stop_reactive_blocking
+    cleanup_nfq_rules
+    apply_nfq_rules
+    apply_performance_patches "$enable_stats"
+}
+
+prepare_ids_runtime() {
+    restore_offload_state
+    cleanup_nfq_rules
+    ensure_reactive_blocking
 }
 
 ensure_runtime_prereqs() {
@@ -433,6 +480,7 @@ ENABLE_NDPI=1
 ENABLE_WEBSOCKET=1
 ENABLE_WEBSOCKET_RULES=1
 ENABLE_NDPI_BYPASS=0
+ENABLE_NDPI_SECURITY=0
 [ -f "$POLICY_CONF" ] && . "$POLICY_CONF"
 IPS_INLINE="$(normalize_flag "$IPS_INLINE")"
 SURICATA_BIN="$(resolve_suricata_bin)"
@@ -441,13 +489,14 @@ ENABLE_NDPI="$(normalize_flag "$ENABLE_NDPI")"
 ENABLE_WEBSOCKET="$(normalize_flag "$ENABLE_WEBSOCKET")"
 ENABLE_WEBSOCKET_RULES="$(normalize_flag "$ENABLE_WEBSOCKET_RULES")"
 ENABLE_NDPI_BYPASS="$(normalize_flag "$ENABLE_NDPI_BYPASS")"
-log "Loaded policy from $POLICY_CONF (IPS_INLINE=$IPS_INLINE, ENABLE_NDPI=$ENABLE_NDPI, ENABLE_WEBSOCKET=$ENABLE_WEBSOCKET, ENABLE_WEBSOCKET_RULES=$ENABLE_WEBSOCKET_RULES, ENABLE_NDPI_BYPASS=$ENABLE_NDPI_BYPASS, SURICATA_BIN=$SURICATA_BIN${SURICATA_LIB_PATH:+, SURICATA_LIB_PATH=$SURICATA_LIB_PATH})"
+ENABLE_NDPI_SECURITY="$(normalize_flag "$ENABLE_NDPI_SECURITY")"
+log "Loaded policy from $POLICY_CONF (IPS_INLINE=$IPS_INLINE, ENABLE_NDPI=$ENABLE_NDPI, ENABLE_WEBSOCKET=$ENABLE_WEBSOCKET, ENABLE_WEBSOCKET_RULES=$ENABLE_WEBSOCKET_RULES, ENABLE_NDPI_BYPASS=$ENABLE_NDPI_BYPASS, ENABLE_NDPI_SECURITY=$ENABLE_NDPI_SECURITY, SURICATA_BIN=$SURICATA_BIN${SURICATA_LIB_PATH:+, SURICATA_LIB_PATH=$SURICATA_LIB_PATH})"
 
 log "post-update prune starting"
 ensure_vectorscan_runtime
 sync_managed_rules
 ensure_runtime_prereqs
-apply_feature_patches "$ENABLE_NDPI" "$ENABLE_WEBSOCKET" "$ENABLE_WEBSOCKET_RULES" "$ENABLE_NDPI_BYPASS"
+apply_feature_patches "$ENABLE_NDPI" "$ENABLE_WEBSOCKET" "$ENABLE_WEBSOCKET_RULES" "$ENABLE_NDPI_BYPASS" "$ENABLE_NDPI_SECURITY"
 
 was_running=0
 if is_running; then
@@ -467,6 +516,14 @@ log "running ips-rule-policy.sh"
 /usr/sbin/ips-rule-policy.sh || { log "policy run failed"; exit 1; }
 
 if [ "$was_running" -eq 1 ]; then
+    if [ "$IPS_INLINE" = "1" ]; then
+        log "Applying inline runtime prerequisites before restart."
+        prepare_inline_runtime "$ENABLE_STATS"
+    else
+        log "Applying IDS runtime prerequisites before restart."
+        prepare_ids_runtime
+    fi
+
     if [ -x /var/run/suricata.sh ]; then
         log "starting via /var/run/suricata.sh"
         /var/run/suricata.sh start || true
@@ -474,15 +531,9 @@ if [ "$was_running" -eq 1 ]; then
         cleanup_suricata_runtime
         if [ "$IPS_INLINE" = "1" ]; then
             log "starting via /usr/bin/suricata in NFQUEUE inline mode (4 queues, workers)"
-            ensure_inline_offload_state
-            cleanup_nfq_rules
-            apply_nfq_rules
-            apply_performance_patches "$ENABLE_STATS"
             run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ips-nfq.yaml -q 0 -q 1 -q 2 -q 3 -D
         else
             log "starting via /usr/bin/suricata in IDS mode"
-            restore_offload_state
-            cleanup_nfq_rules
             run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ids.yaml --af-packet=br-lan -D
         fi
     fi
