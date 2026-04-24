@@ -3,6 +3,7 @@
 
 apply_stream_stability_patches() {
     local yaml="$1"
+    local enable_permissive_applayer="${2:-0}"
 
     [ -f "$yaml" ] || return 0
 
@@ -19,6 +20,13 @@ apply_stream_stability_patches() {
     sed -i 's/    #memcap-policy: ignore/    memcap-policy: ignore/' "$yaml"
     if ! grep -q 'drop-invalid: no' "$yaml"; then
         sed -i '/^  inline: auto/a\  drop-invalid: no' "$yaml"
+    fi
+
+    # Global AppLayer exception policy
+    if [ "$enable_permissive_applayer" = "1" ]; then
+        sed -i 's/^exception-policy: auto/exception-policy: bypass/' "$yaml"
+    else
+        sed -i 's/^exception-policy: bypass/exception-policy: auto/' "$yaml"
     fi
 
     # Keep rule-driven drops visible during troubleshooting.

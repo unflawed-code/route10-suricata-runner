@@ -39,6 +39,7 @@ IPS_ENABLED=0
 IPS_INLINE=0
 IPS_INLINE_BLOCK=1
 IPS_ALLOWED_CATEGORIES=""
+ENABLE_NDPI=0
 [ -f "$POLICY_CONF" ] && . "$POLICY_CONF"
 
 log() { logger -t ips-rule-policy.sh "$@"; }
@@ -56,11 +57,11 @@ if [ -z "$RULES" ] || [ ! -f "$RULES" ]; then
     exit 1
 fi
 
-log "Starting: rules='$RULES' inline=${IPS_INLINE} inline_block=${IPS_INLINE_BLOCK} categories='${IPS_ALLOWED_CATEGORIES}'"
+log "Starting: rules='$RULES' inline=${IPS_INLINE} ndpi=${ENABLE_NDPI} categories='${IPS_ALLOWED_CATEGORIES}'"
 
 # Run Python3 to analyze rules and perform in-place pruning
 python3 - "$RULES" "$DISABLE_OUT" "$DROP_OUT" \
-         "$IPS_ALLOWED_CATEGORIES" "$IPS_INLINE" "$IPS_INLINE_BLOCK" << 'PYEOF'
+         "$IPS_ALLOWED_CATEGORIES" "$IPS_INLINE" "$IPS_INLINE_BLOCK" "$ENABLE_NDPI" << 'PYEOF'
 import sys, re
 
 rules_file   = sys.argv[1]
@@ -69,6 +70,7 @@ drop_out     = sys.argv[3]
 allowed_cats = set(sys.argv[4].split()) if sys.argv[4].strip() else set()
 ips_inline   = sys.argv[5] == "1"
 ips_inline_block = sys.argv[6] == "1"
+enable_ndpi  = sys.argv[7] == "1"
 
 # Phase 1: Analyze rules, build disable SID set
 SID_RE  = re.compile(r'\bsid:(\d+)')
@@ -101,6 +103,11 @@ with open(rules_file) as f:
                 continue
 
         cls  = m_cls.group(1).rstrip(';') if m_cls else ''
+
+        # nDPI filter
+        if not enable_ndpi and 'ndpi-protocol:' in raw:
+            disable_sids.add(sid)
+            continue
 
         # Category filter (most aggressive)
         if (not cls) or (cls not in allowed_cats):

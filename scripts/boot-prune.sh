@@ -294,9 +294,17 @@ apply_feature_patches() {
 
         ensure_websocket_parser "$yaml" "$enable_websocket"
         ensure_telnet_detection "$yaml"
+        # Managed Rules - only load nDPI rules if nDPI plugin is enabled
+        local actual_ndpi_bypass="$enable_ndpi_bypass"
+        local actual_ndpi_security="$enable_ndpi_security"
+        if [ "$enable_ndpi" = "0" ]; then
+            actual_ndpi_bypass="0"
+            actual_ndpi_security="0"
+        fi
+
         ensure_rule_file_entry "$yaml" "$WEBSOCKET_RULE_FILE" "$enable_ws_rules"
-        ensure_rule_file_entry "$yaml" "$NDPI_BYPASS_RULE_FILE" "$enable_ndpi_bypass"
-        ensure_rule_file_entry "$yaml" "$NDPI_SECURITY_RULE_FILE" "$enable_ndpi_security"
+        ensure_rule_file_entry "$yaml" "$NDPI_BYPASS_RULE_FILE" "$actual_ndpi_bypass"
+        ensure_rule_file_entry "$yaml" "$NDPI_SECURITY_RULE_FILE" "$actual_ndpi_security"
     done
 }
 
@@ -516,8 +524,11 @@ apply_nfq_rules() {
 apply_performance_patches() {
     local yaml
     local enable_stats="$1"
-    for yaml in /usr/share/suricata/suricata-ips-nfq.yaml; do
+    for yaml in /usr/share/suricata/suricata-ips-nfq.yaml /usr/share/suricata/suricata-ids.yaml; do
         [ -f "$yaml" ] || continue
+
+        # Enable fast.log for immediate visibility
+        sed -i '/- fast:/ {n;s/enabled: no/enabled: yes/}' "$yaml"
 
         # Opt 2: Enable worker runmode (best for NFQ multi-queue)
         sed -i 's/^#runmode: autofp/runmode: workers/' "$yaml"
@@ -549,7 +560,7 @@ apply_performance_patches() {
             sed -i '/management-cpu-set:/a \    - worker-cpu-set:\n        cpu: [ 0, 1, 2, 3 ]\n        mode: exclusive' "$yaml"
         fi
 
-        apply_stream_stability_patches "$yaml"
+        apply_stream_stability_patches "$yaml" "$IPS_PERMISSIVE_APPLAYER"
 
         # Opt 6: Stats logging toggle
         if [ "$enable_stats" = "1" ]; then
@@ -574,7 +585,7 @@ prepare_inline_runtime() {
 }
 
 prepare_ids_runtime() {
-    restore_offload_state
+    ensure_inline_offload_state
     cleanup_nfq_rules
     ensure_reactive_blocking
 }
@@ -606,11 +617,12 @@ fi
 IPS_INLINE=0
 SURICATA_BIN="$DEFAULT_SURICATA_BIN"
 SURICATA_LIB_PATH="$DEFAULT_SURICATA_LIB_PATH"
-ENABLE_NDPI=1
+ENABLE_NDPI=0
 ENABLE_WEBSOCKET=1
 ENABLE_WEBSOCKET_RULES=1
 ENABLE_NDPI_BYPASS=0
 ENABLE_NDPI_SECURITY=0
+IPS_PERMISSIVE_APPLAYER=1
 [ -f "$POLICY_CONF" ] && . "$POLICY_CONF"
 IPS_INLINE="$(normalize_flag "$IPS_INLINE")"
 SURICATA_BIN="$(resolve_suricata_bin)"
@@ -620,7 +632,8 @@ ENABLE_WEBSOCKET="$(normalize_flag "$ENABLE_WEBSOCKET")"
 ENABLE_WEBSOCKET_RULES="$(normalize_flag "$ENABLE_WEBSOCKET_RULES")"
 ENABLE_NDPI_BYPASS="$(normalize_flag "$ENABLE_NDPI_BYPASS")"
 ENABLE_NDPI_SECURITY="$(normalize_flag "$ENABLE_NDPI_SECURITY")"
-log "Loaded policy from $POLICY_CONF (IPS_INLINE=$IPS_INLINE, ENABLE_NDPI=$ENABLE_NDPI, ENABLE_WEBSOCKET=$ENABLE_WEBSOCKET, ENABLE_WEBSOCKET_RULES=$ENABLE_WEBSOCKET_RULES, ENABLE_NDPI_BYPASS=$ENABLE_NDPI_BYPASS, ENABLE_NDPI_SECURITY=$ENABLE_NDPI_SECURITY, SURICATA_BIN=$SURICATA_BIN${SURICATA_LIB_PATH:+, SURICATA_LIB_PATH=$SURICATA_LIB_PATH})"
+IPS_PERMISSIVE_APPLAYER="$(normalize_flag "$IPS_PERMISSIVE_APPLAYER")"
+log "Loaded policy from $POLICY_CONF (IPS_INLINE=$IPS_INLINE, IPS_PERMISSIVE_APPLAYER=$IPS_PERMISSIVE_APPLAYER, ENABLE_NDPI=$ENABLE_NDPI, ENABLE_WEBSOCKET=$ENABLE_WEBSOCKET, ENABLE_WEBSOCKET_RULES=$ENABLE_WEBSOCKET_RULES, ENABLE_NDPI_BYPASS=$ENABLE_NDPI_BYPASS, ENABLE_NDPI_SECURITY=$ENABLE_NDPI_SECURITY, SURICATA_BIN=$SURICATA_BIN${SURICATA_LIB_PATH:+, SURICATA_LIB_PATH=$SURICATA_LIB_PATH})"
 
 # Sync config to /etc/suricata so system tools see it
 cp "$POLICY_CONF" /etc/suricata/ips-policy.conf 2>/dev/null
@@ -714,8 +727,8 @@ if is_running; then
                     IDS_ARGS="$IDS_ARGS -i $iface"
                 fi
             done
-            log "Mode startup: IDS ($IDS_ARGS)"
-            run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ids.yaml $IDS_ARGS -D
+            log "Mode startup: IDS (-i br-lan)"
+            run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ids.yaml -i br-lan -D
         fi
         log "prune complete; started in Pure CLI mode"
         log_runtime_summary
@@ -743,8 +756,8 @@ else
             fi
         done
 
-        log "Mode startup: IDS ($IDS_ARGS)"
-        run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ids.yaml $IDS_ARGS -D
+        log "Mode startup: IDS (-i br-lan)"
+        run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ids.yaml -i br-lan -D
     fi
 
     log "prune complete; started in Pure CLI mode"

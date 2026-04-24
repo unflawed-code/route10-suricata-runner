@@ -17,8 +17,6 @@ VECTORSCAN_RUNTIME_ROOT="/a/suricata-vectorscan"
 RULES_DST="/var/lib/suricata/rules"
 CRON_FILE="/etc/crontabs/root"
 PROJECT_TAG="route10-suricata-runner"
-POST_CFG_BLOCK_BEGIN="# BEGIN ${PROJECT_TAG}"
-POST_CFG_BLOCK_END="# END ${PROJECT_TAG}"
 
 log() {
     echo "[uninstall] $*"
@@ -73,8 +71,12 @@ fi
 # 4. Remove persistence hook from post-cfg.sh
 if [ -f "$POST_CFG" ]; then
     log "Removing startup hook from $POST_CFG..."
-    # Remove the block between BEGIN and END
-    sed -i "/${POST_CFG_BLOCK_BEGIN}/,/${POST_CFG_BLOCK_END}/d" "$POST_CFG"
+    # Remove the block between BEGIN and END (legacy)
+    sed -i "/# BEGIN ${PROJECT_TAG}/,/# END ${PROJECT_TAG}/d" "$POST_CFG"
+    # Remove the simplified header and the script line
+    sed -i '/# Initialize optimized Suricata rule policy and configuration/d' "$POST_CFG"
+    # Identify the line by its path pattern
+    sed -i "\|^[[:space:]]*/cfg/suricata-runner(2)?/(scripts/)?start\.sh[[:space:]]*&[[:space:]]*$|d" "$POST_CFG"
     # Clean up any leftover blank lines at the end
     sed -i '${/^[[:space:]]*$/d;}' "$POST_CFG"
 fi

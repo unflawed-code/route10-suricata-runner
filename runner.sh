@@ -10,6 +10,7 @@ else
 fi
 
 PROJECT_TAG="route10-suricata-runner"
+POST_CFG_BLOCK_COMMENT="# Initialize optimized Suricata rule policy and configuration"
 POST_CFG="/cfg/post-cfg.sh"
 CRON_FILE="/etc/crontabs/root"
 VERSION_SCRIPT="${REMOTE_DIR}/scripts/version.sh"
@@ -244,12 +245,14 @@ run_status() {
     current_start_line="${START_SCRIPT} &"
     commented_start_line="# ${START_SCRIPT} &"
     if [ -f "$POST_CFG" ]; then
-        if grep -Fqx "$current_start_line" "$POST_CFG" 2>/dev/null; then
+        if grep -Fqx "$POST_CFG_BLOCK_COMMENT" "$POST_CFG" 2>/dev/null; then
+            hook_status="enabled"
+        elif grep -Fqx "$current_start_line" "$POST_CFG" 2>/dev/null; then
             hook_status="enabled"
         elif grep -Fqx "$commented_start_line" "$POST_CFG" 2>/dev/null; then
             hook_status="disabled (commented)"
         elif grep -Fqx "# BEGIN ${PROJECT_TAG}" "$POST_CFG" 2>/dev/null; then
-            hook_status="present"
+            hook_status="present (legacy)"
         fi
     fi
 

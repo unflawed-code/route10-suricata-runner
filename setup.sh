@@ -10,8 +10,6 @@ VECTORSCAN_RUNTIME_ROOT="/a/suricata-vectorscan"
 RULES_DST="/var/lib/suricata/rules"
 CRON_FILE="/etc/crontabs/root"
 PROJECT_TAG="route10-suricata-runner"
-POST_CFG_BLOCK_BEGIN="# BEGIN ${PROJECT_TAG}"
-POST_CFG_BLOCK_END="# END ${PROJECT_TAG}"
 POST_CFG_BLOCK_COMMENT="# Initialize optimized Suricata rule policy and configuration"
 VERSION_SCRIPT="${REMOTE_DIR}/scripts/version.sh"
 [ ! -f "$VERSION_SCRIPT" ] && VERSION_SCRIPT="${REMOTE_DIR}/version.sh"
@@ -311,17 +309,12 @@ ensure_post_cfg_hook() {
     }
 
     awk \
-        -v begin="$POST_CFG_BLOCK_BEGIN" \
-        -v end="$POST_CFG_BLOCK_END" \
         -v marker="$POST_CFG_BLOCK_COMMENT" \
         -v current_start="$START_WRAPPER" '
         BEGIN {
-            in_block = 0
             skip_after_marker = 0
         }
-        $0 == begin { in_block = 1; next }
-        in_block && $0 == end { in_block = 0; next }
-        in_block { next }
+        $0 ~ /^# (BEGIN|END) route10-suricata-runner/ { next }
         skip_after_marker {
             skip_after_marker = 0
             if ($0 ~ /^#?[[:space:]]*\/cfg\/[^[:space:]]+\/(scripts\/)?start\.sh[[:space:]]*&[[:space:]]*$/) next
@@ -336,11 +329,9 @@ ensure_post_cfg_hook() {
     # Assemble final file: Shebang, Gap, Block, Gap, Rest
     {
         head -n 1 "$tmp_clean"
-        printf '\n%s\n%s\n%s\n%s\n\n' \
-            "$POST_CFG_BLOCK_BEGIN" \
+        printf '\n%s\n%s\n\n' \
             "$POST_CFG_BLOCK_COMMENT" \
-            "$canonical_start" \
-            "$POST_CFG_BLOCK_END"
+            "$canonical_start"
 
         # Output the rest of the file, but skip leading blank lines to ensure exactly 1 gap
         tail -n +2 "$tmp_clean" | awk 'BEGIN { f=0 } /[^[:space:]]/ { f=1 } f { print }'
