@@ -39,8 +39,12 @@ IPS_ENABLED=0
 IPS_INLINE=0
 IPS_INLINE_BLOCK=1
 IPS_ALLOWED_CATEGORIES=""
+IPS_SUPPRESS_SIDS=""
 ENABLE_NDPI=0
 [ -f "$POLICY_CONF" ] && . "$POLICY_CONF"
+# Source local overrides if present (user-specific, not tracked by git)
+LOCAL_CONF="${REMOTE_DIR}/ips-policy-local.conf"
+[ -f "$LOCAL_CONF" ] && . "$LOCAL_CONF"
 
 log() { logger -t ips-rule-policy.sh "$@"; }
 
@@ -61,7 +65,7 @@ log "Starting: rules='$RULES' inline=${IPS_INLINE} ndpi=${ENABLE_NDPI} categorie
 
 # Run Python3 to analyze rules and perform in-place pruning
 python3 - "$RULES" "$DISABLE_OUT" "$DROP_OUT" \
-         "$IPS_ALLOWED_CATEGORIES" "$IPS_INLINE" "$IPS_INLINE_BLOCK" "$ENABLE_NDPI" << 'PYEOF'
+         "$IPS_ALLOWED_CATEGORIES" "$IPS_INLINE" "$IPS_INLINE_BLOCK" "$ENABLE_NDPI" "$IPS_SUPPRESS_SIDS" << 'PYEOF'
 import sys, re
 
 rules_file   = sys.argv[1]
@@ -71,12 +75,15 @@ allowed_cats = set(sys.argv[4].split()) if sys.argv[4].strip() else set()
 ips_inline   = sys.argv[5] == "1"
 ips_inline_block = sys.argv[6] == "1"
 enable_ndpi  = sys.argv[7] == "1"
+suppress_raw = sys.argv[8] if len(sys.argv) > 8 else ""
+suppress_sids = set(s.strip() for s in suppress_raw.split(',') if s.strip())
 
 # Phase 1: Analyze rules, build disable SID set
 SID_RE  = re.compile(r'\bsid:(\d+)')
 CLS_RE  = re.compile(r'\bclasstype:(\S+?)(?:;|$|\s)')
 
-disable_sids = set()
+# SIDs from IPS_SUPPRESS_SIDS in ips-policy.conf (user-configurable false positive list)
+disable_sids = set(suppress_sids)
 drop_sids    = set()
 
 with open(rules_file) as f:
@@ -90,6 +97,11 @@ with open(rules_file) as f:
         if not m_sid:
             continue
         sid = m_sid.group(1)
+
+        # User-defined suppression list
+        if sid in suppress_sids:
+            disable_sids.add(sid)
+            continue
 
         m_cls  = CLS_RE.search(raw)
 
