@@ -689,8 +689,18 @@ LAN_IFACES="$(detect_lan_ifaces)"
 [ -z "$LAN_IFACES" ] && LAN_IFACES="br-lan" # Absolute fallback
 
 # Phase 1: Prune rules
+POLICY_SCRIPT="${REMOTE_DIR}/scripts/ips-rule-policy.sh"
+[ ! -f "$POLICY_SCRIPT" ] && POLICY_SCRIPT="${REMOTE_DIR}/ips-rule-policy.sh"
+
 log "running ips-rule-policy.sh"
-/usr/sbin/ips-rule-policy.sh || { log "policy run failed"; exit 1; }
+if [ -x "$POLICY_SCRIPT" ]; then
+    "$POLICY_SCRIPT" || { log "policy run failed"; exit 1; }
+elif [ -x /usr/sbin/ips-rule-policy.sh ]; then
+    /usr/sbin/ips-rule-policy.sh || { log "policy run failed"; exit 1; }
+else
+    log "Error: Rule policy script missing."
+    exit 1
+fi
 
 # Phase 2: Handle service state
 if is_running; then
