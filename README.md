@@ -17,32 +17,12 @@ This project provides a robust, automated solution for managing Suricata on Rout
   - **Optimized UI Mode**: Keep Suricata **Enabled** in the Web UI while benefiting from memory optimizations and rule pruning.
 - **Automated Updates**: Daily automated script and rule updates via GitHub with atomic rollback protection. Schedule is configurable in `ips-policy.conf`.
 - **UCI Version Validation**: System-level tracking of Runner, Suricata, Vectorscan, and nDPI versions via OpenWrt's UCI database.
-- **Automatic Patching**: Patches the system's `suricatad.sh` and `suricata-update.sh` to prevent memory-heavy redundant update cycles (saving ~800MB RAM spikes).
 - **Runtime Hardening**: Disables crash-prone and memory-heavy Suricata outputs like `file-store` and `pcap-log`.
 - **Boot Integration**: Seamlessly integrates with the router's boot process via `/cfg/post-cfg.sh` (Enabled by default).
 
 ## Installation
 
-Upload the project files to your router (e.g., to `/cfg/suricata-runner/`):
-
-### Required Files
-
-- `runner.sh`
-- `setup.sh`
-- `ips-policy.conf`
-- `vectorscan-runtime.tar.xz`
-- `rules/route10-websocket.rules.template`
-- `rules/route10-ndpi-bypass.rules.template`
-- `rules/route10-ndpi-security.rules.template`
-- `scripts/start.sh`
-- `scripts/boot-prune.sh`
-- `scripts/ips-rule-policy.sh`
-- `scripts/post-update-prune.sh`
-- `scripts/stream-fix.sh`
-- `scripts/suricata-update.sh`
-- `scripts/updater.sh`
-- `scripts/vectorscan-runtime.sh`
-- `scripts/version.sh`
+Upload the entire root folder of this repository to your router (e.g., to `/cfg/suricata-runner/`).
 
 ### 1. Set Permissions
 
@@ -60,7 +40,7 @@ chmod 700 *.sh scripts/*.sh 2>/dev/null || chmod 700 *.sh
 This will:
 
 1. Extract `vectorscan-runtime.tar.xz` into `/a/suricata-vectorscan`.
-2. Patch system scripts to fix memory spike bugs.
+2. Patch system scripts to fix memory spike bugs (if running older firmware).
 3. Install/update the managed startup hook in `/cfg/post-cfg.sh` (**Enabled by default**).
 4. Canonicalize nightly Suricata and Runner update cron entries.
 5. Initialize local `.rules` files from `.template` if they don't already exist.
@@ -150,7 +130,7 @@ Configuration is managed in `ips-policy.conf`.
 ## Optimization Results
 
 - **Rule Reduction**: The `ips-policy.conf` allows configuring specific threat categories to load. Activating only a few critical categories can drastically reduce the active ruleset, saving significant memory rather than loading all ~65,000 rules from the Emerging Threats (ET) ruleset.
-- **Memory Stability**: Patching Route10's `suricata-update.sh` prevents a redundant update bug that causes ~800MB RAM spikes. Combined with disabling heavy logging features, this prevents OOM (Out Of Memory) crashes on 1GB routers.
+- **Memory Stability**: Disabling heavy logging features prevents OOM (Out Of Memory) crashes on 1GB routers. (On older firmware, also patches a redundant update bug that caused ~800MB RAM spikes).
 - **Performance**: Custom Vectorscan integration provides high-speed pattern matching.
 
 ## Verification
