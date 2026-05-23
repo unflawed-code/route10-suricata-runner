@@ -34,10 +34,10 @@ log() {
 get_policy_value() {
     local key="$1"
     local default_value="$2"
-    local policy_conf="/etc/suricata/ips-policy.conf"
+    local policy_conf="${REMOTE_DIR}/ips-policy.conf"
     local value
 
-    [ -f "$policy_conf" ] || policy_conf="${REMOTE_DIR}/ips-policy.conf"
+    [ -f "$policy_conf" ] || policy_conf="/etc/suricata/ips-policy.conf"
     [ -f "$policy_conf" ] || {
         printf '%s' "$default_value"
         return 0

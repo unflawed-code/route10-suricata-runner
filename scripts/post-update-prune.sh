@@ -483,7 +483,8 @@ ensure_runtime_prereqs() {
 
 }
 
-POLICY_CONF=/etc/suricata/ips-policy.conf
+POLICY_CONF="${REMOTE_DIR}/ips-policy.conf"
+[ -f "$POLICY_CONF" ] || POLICY_CONF=/etc/suricata/ips-policy.conf
 IPS_INLINE=0
 SURICATA_BIN="$DEFAULT_SURICATA_BIN"
 SURICATA_LIB_PATH="$DEFAULT_SURICATA_LIB_PATH"

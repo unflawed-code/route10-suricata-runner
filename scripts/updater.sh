@@ -14,8 +14,8 @@ fi
 
 VERSION_SCRIPT="${REMOTE_DIR}/scripts/version.sh"
 [ ! -f "$VERSION_SCRIPT" ] && VERSION_SCRIPT="${REMOTE_DIR}/version.sh"
-POLICY_CONF="/etc/suricata/ips-policy.conf"
-[ ! -f "$POLICY_CONF" ] && POLICY_CONF="${REMOTE_DIR}/ips-policy.conf"
+POLICY_CONF="${REMOTE_DIR}/ips-policy.conf"
+[ ! -f "$POLICY_CONF" ] && POLICY_CONF="/etc/suricata/ips-policy.conf"
 LOG_FILE="/var/log/suricata-runner-update.log"
 GITHUB_REPO="unflawed-code/route10-suricata-runner"
 LATEST_RELEASE_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
