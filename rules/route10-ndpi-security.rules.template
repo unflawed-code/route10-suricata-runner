@@ -8,7 +8,6 @@ alert ip any any <> any any (msg:"Route10 nDPI security: possible exploit detect
 alert ip any any <> any any (msg:"Route10 nDPI security: obfuscated traffic detected"; ndpi-risk:NDPI_OBFUSCATED_TRAFFIC; sid:2920003; rev:2;)
 
 # --- Anomalies & Covert Channels ---
-alert ip any any <> any any (msg:"Route10 nDPI security: unresolved hostname (possible DNS bypass)"; ndpi-risk:NDPI_UNRESOLVED_HOSTNAME; sid:2920010; rev:2;)
 alert ip any any <> any any (msg:"Route10 nDPI security: ALPN/SNI mismatch"; ndpi-risk:NDPI_TLS_ALPN_SNI_MISMATCH; sid:2920011; rev:2;)
 alert ip any any <> any any (msg:"Route10 nDPI security: periodic flow (possible beacon)"; ndpi-risk:NDPI_PERIODIC_FLOW; sid:2920012; rev:2;)
 
