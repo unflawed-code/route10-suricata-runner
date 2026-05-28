@@ -608,6 +608,7 @@ fi
 
 # MARK START OF DANGER ZONE
 touch "${REMOTE_DIR}/BOOT_PENDING"
+trap 'rm -f "${REMOTE_DIR}/BOOT_PENDING"' EXIT
 
 # Load IPS policy for inline mode decision.
 POLICY_CONF="${REMOTE_DIR}/ips-policy.conf"
@@ -777,5 +778,4 @@ fi
 # Phase 3: Synchronize cron jobs
 ensure_runner_update_cron
 
-# 4. Successful finish: clear the BOOT_PENDING sentinel file
-rm -f "${REMOTE_DIR}/BOOT_PENDING"
+# 4. Successful finish: clear the BOOT_PENDING sentinel file (handled by EXIT trap)
