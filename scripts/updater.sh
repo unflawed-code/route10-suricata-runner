@@ -245,6 +245,14 @@ perform_update() {
     # Since rules/ are gitignored, they aren't in the update archive and stay untouched.
     cp -rf "${extracted_root}/"* "$REMOTE_DIR/"
 
+    # --- Stage 2.5: Force version in scripts/version.sh to match the tag name ---
+    # This prevents version mismatch if the repo version was not bumped prior to tagging.
+    local clean_version="${tag#v}"
+    if [ -f "$VERSION_SCRIPT" ]; then
+        sed -i "s|^SURICATA_RUNNER_VERSION=.*|SURICATA_RUNNER_VERSION=\"$clean_version\"|" "$VERSION_SCRIPT"
+        log "Forced local version string in scripts/version.sh to '$clean_version' to match tag."
+    fi
+
     # --- Stage 3: Merge ips-policy.conf (new keys kept, user values win) ---
     merge_policy_conf "$POLICY_CONF" "$user_conf_bak"
 
