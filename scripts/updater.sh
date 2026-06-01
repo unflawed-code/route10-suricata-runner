@@ -91,26 +91,31 @@ get_latest_version_tag() {
     echo "$tag" | tr -d '\r'
 }
 
+get_prerelease_info() {
+    local ver="$1"
+    local pri=3
+    local val=0
+
+    if echo "$ver" | grep -q "-"; then
+        if echo "$ver" | grep -iq "rc"; then
+            pri=2
+            val=$(echo "$ver" | sed -n 's/.*[Rr][Cc]//p' | tr -dc '0-9')
+        elif echo "$ver" | grep -iq "beta"; then
+            pri=1
+            val=$(echo "$ver" | sed -n 's/.*[Bb][Ee][Tt][Aa]//p' | tr -dc '0-9')
+        else
+            pri=0
+            val=$(echo "$ver" | sed 's/.*-//' | tr -dc '0-9')
+        fi
+    fi
+    echo "${pri} ${val:-0}"
+}
+
 version_gt() {
-    # Strip everything after '-' to handle rc versions correctly in integer comparisons
+    # Strip everything after '-' to handle rc/beta versions correctly in integer comparisons
     local v1=$(echo "$1" | sed 's/^v//' | cut -d- -f1 | tr -d '\r')
     local v2=$(echo "$2" | sed 's/^v//' | cut -d- -f1 | tr -d '\r')
     
-    # If numeric parts match exactly, check if one is an RC and the other is stable
-    if [ "$v1" = "$v2" ]; then
-        # If GitHub ($1) is "2.0.0" and Local ($2) is "2.0.0-rc1", GitHub is greater
-        if echo "$1" | grep -qv "-" && echo "$2" | grep -q "-"; then
-            return 0
-        fi
-        # If GitHub is "2.0.0-rc2" and Local is "2.0.0-rc1", GitHub is greater
-        if echo "$1" | grep -q "-" && echo "$2" | grep -q "-"; then
-            local rc1=$(echo "$1" | sed 's/.*-rc//' | tr -dc '0-9')
-            local rc2=$(echo "$2" | sed 's/.*-rc//' | tr -dc '0-9')
-            if [ "${rc1:-0}" -gt "${rc2:-0}" ]; then return 0; fi
-        fi
-        return 1
-    fi
-
     local i=1
     while [ $i -le 3 ]; do
         local p1=$(echo "$v1" | cut -d. -f$i); [ -z "$p1" ] && p1=0
@@ -119,6 +124,20 @@ version_gt() {
         if [ "$p1" -lt "$p2" ]; then return 1; fi
         i=$((i+1))
     done
+
+    # Compare pre-release priority and value
+    local info1=$(get_prerelease_info "$1")
+    local info2=$(get_prerelease_info "$2")
+    
+    local pri1=$(echo "$info1" | cut -d' ' -f1)
+    local val1=$(echo "$info1" | cut -d' ' -f2)
+    local pri2=$(echo "$info2" | cut -d' ' -f1)
+    local val2=$(echo "$info2" | cut -d' ' -f2)
+
+    if [ "$pri1" -gt "$pri2" ]; then return 0; fi
+    if [ "$pri1" -lt "$pri2" ]; then return 1; fi
+    if [ "$val1" -gt "$val2" ]; then return 0; fi
+
     return 1
 }
 
