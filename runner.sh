@@ -239,7 +239,7 @@ run_status() {
     [ -n "$cron_prune" ] || cron_prune="unavailable"
 
     cron_runner="$(grep 'runner.sh update' "$CRON_FILE" 2>/dev/null | head -n 1 || true)"
-    [ -n "$cron_runner" ] || cron_runner="unavailable"
+    [ -n "$cron_runner" ] || cron_runner="disabled"
 
     hook_status="absent"
     current_start_line="${START_SCRIPT} &"
@@ -266,7 +266,12 @@ run_status() {
     echo "Policy ENABLE_WEBSOCKET_RULES: ${project_ws_rules:-unavailable}"
     echo "Policy ENABLE_NDPI_BYPASS: ${project_ndpi_bypass:-unavailable}"
     echo "Policy ENABLE_NDPI_SECURITY: ${project_ndpi_security:-unavailable}"
-    echo "Policy ENABLE_AUTO_UPDATE: ${project_auto_update:-0}"
+    local auto_update_status="disabled"
+    case "$(echo "${project_auto_update:-0}" | tr -d ' \n\r\t')" in
+        1|true|TRUE|yes|YES|on|ON) auto_update_status="enabled" ;;
+        *) auto_update_status="disabled" ;;
+    esac
+    echo "Policy ENABLE_AUTO_UPDATE: ${auto_update_status}"
     if [ -n "$suricata_proc" ]; then
         echo "Suricata Process: running"
     else
