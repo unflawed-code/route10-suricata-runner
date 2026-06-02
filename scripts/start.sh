@@ -120,7 +120,8 @@ ensure_suricata_update_cron() {
     prune_cron="$(cron_or_default "$prune_cron" "32 3 * * *" "POST_UPDATE_PRUNE_CRON")"
     target_update="${update_cron} /usr/bin/suricata-update --fail --no-test"
     target_prune="${prune_cron} ${POST_UPDATE_PRUNE_SCRIPT}"
-    [ -f "$CRON_FILE" ] || return 0
+    [ -d "$(dirname "$CRON_FILE")" ] || mkdir -p "$(dirname "$CRON_FILE")"
+    [ -f "$CRON_FILE" ] || touch "$CRON_FILE"
 
     awk -v target_update="$target_update" -v target_prune="$target_prune" '
         BEGIN { wrote_update = 0; wrote_prune = 0 }

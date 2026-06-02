@@ -482,7 +482,8 @@ ensure_runner_update_cron() {
     runner_update_cron="$(cron_or_default "$runner_update_cron" "30 4 * * *" "RUNNER_UPDATE_CRON")"
     local target_cron="${runner_update_cron} /bin/ash ${REMOTE_DIR}/runner.sh update"
     
-    [ -f "$cron_file" ] || return 0
+    [ -d "$(dirname "$cron_file")" ] || mkdir -p "$(dirname "$cron_file")"
+    [ -f "$cron_file" ] || touch "$cron_file"
 
     if [ "$auto_update" = "1" ]; then
         if ! grep -Fqx "$target_cron" "$cron_file" 2>/dev/null; then
