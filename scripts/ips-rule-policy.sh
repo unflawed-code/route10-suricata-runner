@@ -126,7 +126,7 @@ with open(rules_file) as f:
             disable_sids.add(sid)
             continue
 
-        if ips_inline and ips_inline_block:
+        if ips_inline and ips_inline_block and 'noalert' not in raw:
             drop_sids.add(sid)
 
 # Phase 2: Add noise reduction regex entries
@@ -177,7 +177,8 @@ with open(rules_file) as inp, open(rules_file + '.tmp', 'w') as out:
                 rule_text = orig
                 if ips_inline and ips_inline_block:
                     # Convert alert to drop for active rules only when inline blocking is enabled
-                    if rule_text.startswith('alert '):
+                    # Do NOT convert flowbits:noalert or noalert rules to drop, as they are state-setters
+                    if rule_text.startswith('alert ') and 'noalert' not in rule_text:
                         rule_text = 'drop ' + rule_text[6:]
                 out.write(rule_text + '\n')
                 active += 1
