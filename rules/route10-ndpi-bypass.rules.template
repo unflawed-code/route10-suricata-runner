@@ -4,6 +4,7 @@
 
 pass ip any any <> any any (msg:"Route10 nDPI bypass Ookla"; ndpi-protocol:Ookla; sid:2900100; rev:2;)
 pass ip any any <> any any (msg:"Route10 nDPI bypass WireGuard"; ndpi-protocol:WireGuard; sid:2910260; rev:2;)
+pass ip any any <> any any (msg:"Route10 nDPI bypass Github"; ndpi-protocol:Github; sid:2910055; rev:1;)
 
 # --- Streaming Media (High Bandwidth) ---
 pass ip any any <> any any (msg:"Route10 nDPI bypass Netflix"; ndpi-protocol:NetFlix; sid:2900101; rev:2;)
