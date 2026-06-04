@@ -120,7 +120,7 @@ Configuration is managed in `ips-policy.conf`.
 
 ### Feature Toggles
 
-- `ENABLE_NDPI=1`: Default is 1. Loads the nDPI application-aware plugin.
+- `ENABLE_NDPI=0`: Default is disabled. Set this to 1 to load the nDPI application-aware plugin.
 - `ENABLE_WEBSOCKET=1`: Default is 1. Enables the WebSocket app-layer parser.
 - `ENABLE_AUTO_UPDATE=0`: Default is disabled. Set this to 1 to enable daily automated updates from GitHub.
 - `RUNNER_UPDATE_CRON="30 4 * * *"`: Cron schedule for `runner.sh update` when auto-update is enabled.
