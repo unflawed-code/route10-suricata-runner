@@ -35,8 +35,6 @@ This file contains ready-to-copy alert rules for every risk factor supported by 
 | NDPI_SSH_OBSOLETE_CLIENT_VERSION_OR_CIPHER | High | SSH Obsolete Client | `alert ip any any <> any any (msg:"Route10 nDPI security: obsolete SSH client"; ndpi-risk:NDPI_SSH_OBSOLETE_CLIENT_VERSION_OR_CIPHER; sid:2920118; rev:1;)` |
 | NDPI_SSH_OBSOLETE_SERVER_VERSION_OR_CIPHER | Medium | SSH Obsolete Server | `alert ip any any <> any any (msg:"Route10 nDPI security: obsolete SSH server"; ndpi-risk:NDPI_SSH_OBSOLETE_SERVER_VERSION_OR_CIPHER; sid:2920119; rev:1;)` |
 | NDPI_SMB_INSECURE_VERSION | High | SMB Insecure Vers | `alert ip any any <> any any (msg:"Route10 nDPI security: insecure SMB version"; ndpi-risk:NDPI_SMB_INSECURE_VERSION; sid:2920120; rev:1;)` |
-| NDPI_MISMATCHING_PROTOCOL_WITH_IP | High | Proto/IP Mismatch | `alert ip any any <> any any (msg:"Route10 nDPI security: protocol/IP mismatch"; ndpi-risk:NDPI_MISMATCHING_PROTOCOL_WITH_IP; sid:2920121; rev:1;)` |
-| NDPI_TLS_SUSPICIOUS_ESNI_USAGE | Low | Unsafe Protocol (ESNI) | `alert ip any any <> any any (msg:"Route10 nDPI security: suspicious ESNI usage"; ndpi-risk:NDPI_TLS_SUSPICIOUS_ESNI_USAGE; sid:2920122; rev:1;)` |
 | NDPI_DNS_SUSPICIOUS_TRAFFIC | Medium | Susp DNS Traffic | `alert ip any any <> any any (msg:"Route10 nDPI security: suspicious DNS"; ndpi-risk:NDPI_DNS_SUSPICIOUS_TRAFFIC; sid:2920123; rev:1;)` |
 | NDPI_TLS_MISSING_SNI | Medium | Missing SNI | `alert ip any any <> any any (msg:"Route10 nDPI security: missing TLS SNI"; ndpi-risk:NDPI_TLS_MISSING_SNI; sid:2920124; rev:1;)` |
 | NDPI_HTTP_SUSPICIOUS_CONTENT | High | HTTP Susp Content | `alert ip any any <> any any (msg:"Route10 nDPI security: suspicious HTTP content"; ndpi-risk:NDPI_HTTP_SUSPICIOUS_CONTENT; sid:2920125; rev:1;)` |
@@ -64,7 +62,6 @@ This file contains ready-to-copy alert rules for every risk factor supported by 
 | NDPI_HTTP_OBSOLETE_SERVER | Medium | HTTP Obsolete Server | `alert ip any any <> any any (msg:"Route10 nDPI security: obsolete HTTP server"; ndpi-risk:NDPI_HTTP_OBSOLETE_SERVER; sid:2920147; rev:1;)` |
 | NDPI_PERIODIC_FLOW | Low | Periodic Flow (Beacon) | `alert ip any any <> any any (msg:"Route10 nDPI security: periodic flow"; ndpi-risk:NDPI_PERIODIC_FLOW; sid:2920148; rev:1;)` |
 | NDPI_MINOR_ISSUES | Low | Minor Issues | `alert ip any any <> any any (msg:"Route10 nDPI security: minor issues"; ndpi-risk:NDPI_MINOR_ISSUES; sid:2920149; rev:1;)` |
-| NDPI_UNRESOLVED_HOSTNAME | Medium | Unresolved hostname | `alert ip any any <> any any (msg:"Route10 nDPI security: unresolved hostname"; ndpi-risk:NDPI_UNRESOLVED_HOSTNAME; sid:2920151; rev:1;)` |
 | NDPI_TLS_ALPN_SNI_MISMATCH | Medium | ALPN/SNI Mismatch | `alert ip any any <> any any (msg:"Route10 nDPI security: ALPN/SNI mismatch"; ndpi-risk:NDPI_TLS_ALPN_SNI_MISMATCH; sid:2920152; rev:1;)` |
 | NDPI_MALWARE_HOST_CONTACTED | Severe | Malware Host | `alert ip any any <> any any (msg:"Route10 nDPI security: malware host"; ndpi-risk:NDPI_MALWARE_HOST_CONTACTED; sid:2920153; rev:1;)` |
 | NDPI_BINARY_DATA_TRANSFER | Medium | Binary Data Transfer | `alert ip any any <> any any (msg:"Route10 nDPI security: binary data transfer"; ndpi-risk:NDPI_BINARY_DATA_TRANSFER; sid:2920154; rev:1;)` |

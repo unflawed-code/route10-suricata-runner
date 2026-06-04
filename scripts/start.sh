@@ -34,10 +34,10 @@ log() {
 get_policy_value() {
     local key="$1"
     local default_value="$2"
-    local policy_conf="/etc/suricata/ips-policy.conf"
+    local policy_conf="${REMOTE_DIR}/ips-policy.conf"
     local value
 
-    [ -f "$policy_conf" ] || policy_conf="${REMOTE_DIR}/ips-policy.conf"
+    [ -f "$policy_conf" ] || policy_conf="/etc/suricata/ips-policy.conf"
     [ -f "$policy_conf" ] || {
         printf '%s' "$default_value"
         return 0
@@ -120,7 +120,8 @@ ensure_suricata_update_cron() {
     prune_cron="$(cron_or_default "$prune_cron" "32 3 * * *" "POST_UPDATE_PRUNE_CRON")"
     target_update="${update_cron} /usr/bin/suricata-update --fail --no-test"
     target_prune="${prune_cron} ${POST_UPDATE_PRUNE_SCRIPT}"
-    [ -f "$CRON_FILE" ] || return 0
+    [ -d "$(dirname "$CRON_FILE")" ] || mkdir -p "$(dirname "$CRON_FILE")"
+    [ -f "$CRON_FILE" ] || touch "$CRON_FILE"
 
     awk -v target_update="$target_update" -v target_prune="$target_prune" '
         BEGIN { wrote_update = 0; wrote_prune = 0 }

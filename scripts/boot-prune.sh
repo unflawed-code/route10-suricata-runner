@@ -482,7 +482,8 @@ ensure_runner_update_cron() {
     runner_update_cron="$(cron_or_default "$runner_update_cron" "30 4 * * *" "RUNNER_UPDATE_CRON")"
     local target_cron="${runner_update_cron} /bin/ash ${REMOTE_DIR}/runner.sh update"
     
-    [ -f "$cron_file" ] || return 0
+    [ -d "$(dirname "$cron_file")" ] || mkdir -p "$(dirname "$cron_file")"
+    [ -f "$cron_file" ] || touch "$cron_file"
 
     if [ "$auto_update" = "1" ]; then
         if ! grep -Fqx "$target_cron" "$cron_file" 2>/dev/null; then
@@ -608,6 +609,7 @@ fi
 
 # MARK START OF DANGER ZONE
 touch "${REMOTE_DIR}/BOOT_PENDING"
+trap 'rm -f "${REMOTE_DIR}/BOOT_PENDING"' EXIT
 
 # Load IPS policy for inline mode decision.
 POLICY_CONF="${REMOTE_DIR}/ips-policy.conf"
@@ -777,5 +779,4 @@ fi
 # Phase 3: Synchronize cron jobs
 ensure_runner_update_cron
 
-# 4. Successful finish: clear the BOOT_PENDING sentinel file
-rm -f "${REMOTE_DIR}/BOOT_PENDING"
+# 4. Successful finish: clear the BOOT_PENDING sentinel file (handled by EXIT trap)

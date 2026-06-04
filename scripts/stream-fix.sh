@@ -11,8 +11,7 @@ apply_stream_stability_patches() {
     sed -i 's/checksum-validation: yes/checksum-validation: no/' "$yaml"
 
     # Allow Suricata to attach to already-established connections safely.
-    sed -i 's/^#midstream: false/midstream: true/' "$yaml"
-    sed -i 's/^[[:space:]]*midstream:[[:space:]]*false/  midstream: true/' "$yaml"
+    sed -i 's/^[[:space:]]*#\?midstream:[[:space:]]*false/  midstream: true/' "$yaml"
 
     # Inline mode should ignore engine exceptions instead of silently dropping.
     sed -i 's/^  #memcap-policy: ignore/  memcap-policy: ignore/' "$yaml"
@@ -28,6 +27,9 @@ apply_stream_stability_patches() {
     else
         sed -i 's/^exception-policy: bypass/exception-policy: auto/' "$yaml"
     fi
+
+    # Global AppLayer error policy - prevent drops on parsing anomalies (e.g. TLS handshake issues on multi-queue)
+    sed -i 's/^[[:space:]]*#\?[[:space:]]*error-policy:[[:space:]]*\S\+/  error-policy: ignore/' "$yaml"
 
     # Keep rule-driven drops visible during troubleshooting.
     sed -i '/- fast:/,/enabled:/ s/enabled: no/enabled: yes/' "$yaml"
