@@ -598,8 +598,19 @@ case "$DELAY" in
     ;;
 esac
 
-log "boot-prune starting; sleeping ${DELAY}s before action"
-sleep "$DELAY"
+log "boot-prune starting; checking system uptime (target delay: ${DELAY}s)..."
+while true; do
+    uptime_secs=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo "0")
+    if [ "$uptime_secs" -ge "$DELAY" ]; then
+        break
+    fi
+    wait_secs=$((DELAY - uptime_secs))
+    step_sleep=5
+    if [ "$wait_secs" -lt 5 ]; then
+        step_sleep=$wait_secs
+    fi
+    sleep "$step_sleep"
+done
 log "boot-prune awake from $REMOTE_DIR"
 
 if [ ! -x /usr/sbin/ips-rule-policy.sh ]; then
