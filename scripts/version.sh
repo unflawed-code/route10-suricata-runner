@@ -2,7 +2,7 @@
 
 # These are the "Code" versions (what is currently in the scripts)
 SURICATA_RUNNER_NAME="Route10 Suricata Runner"
-SURICATA_RUNNER_VERSION="3.0.0"
+SURICATA_RUNNER_VERSION="3.1.0"
 SURICATA_RUNNER_AUTHOR="https://github.com/unflawed-code"
 SURICATA_BUNDLED_VERSION="8.0.5"
 VECTORSCAN_BUNDLED_VERSION="5.4.12"
