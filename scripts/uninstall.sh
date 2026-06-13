@@ -110,6 +110,9 @@ if [ -L /var/lib/suricata ]; then
     rm -f /var/lib/suricata
 fi
 
+log "Removing firewall hotplug hook..."
+rm -f /etc/hotplug.d/firewall/90-suricata-firewall 2>/dev/null || true
+
 # 8. Clean up firewall rules
 log "Cleaning up firewall rules..."
 iptables -t mangle -D FORWARD -j IPS_NFQ 2>/dev/null || true

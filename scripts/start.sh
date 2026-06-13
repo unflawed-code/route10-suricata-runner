@@ -241,6 +241,12 @@ fi
 
 ensure_suricata_update_cron
 
+if [ -f "${REMOTE_DIR}/scripts/90-suricata-firewall" ]; then
+    mkdir -p /etc/hotplug.d/firewall
+    cp -f "${REMOTE_DIR}/scripts/90-suricata-firewall" /etc/hotplug.d/firewall/90-suricata-firewall
+    chmod 755 /etc/hotplug.d/firewall/90-suricata-firewall
+fi
+
 log "Initializing configuration from $REMOTE_DIR..."
 cp "${REMOTE_DIR}/ips-policy.conf" /etc/suricata/ips-policy.conf 2>/dev/null
 

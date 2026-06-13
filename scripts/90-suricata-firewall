@@ -1,0 +1,42 @@
+#!/bin/ash
+# Suricata firewall hotplug hook to restore iptables rules on reload
+[ "$ACTION" = "add" ] || exit 0
+
+POLICY_CONF="/cfg/suricata-runner/ips-policy.conf"
+[ -f "$POLICY_CONF" ] || POLICY_CONF="/etc/suricata/ips-policy.conf"
+[ -f "$POLICY_CONF" ] || exit 0
+
+IPS_INLINE=0
+[ -f "$POLICY_CONF" ] && . "$POLICY_CONF"
+
+# Only apply if Suricata is actually running
+if pgrep Suricata-Main >/dev/null; then
+    if [ "$IPS_INLINE" = "1" ]; then
+        logger -t suricata-hotplug "Restoring Suricata NFQUEUE mangle rules (Inline IPS)..."
+        chain="IPS_NFQ"
+        queue_balance="0:3"
+        bypass_mark="0x8000/0x8000"
+
+        # IPv4 rules
+        iptables -t mangle -N "$chain" 2>/dev/null || true
+        iptables -t mangle -F "$chain"
+        iptables -t mangle -C FORWARD -j "$chain" 2>/dev/null || iptables -t mangle -I FORWARD 1 -j "$chain"
+        iptables -t mangle -A "$chain" -m mark --mark "$bypass_mark" -j ACCEPT
+        iptables -t mangle -A "$chain" -j NFQUEUE --queue-balance "$queue_balance" --queue-bypass
+
+        # IPv6 rules
+        if command -v ip6tables >/dev/null 2>&1; then
+            ip6tables -t mangle -N "$chain" 2>/dev/null || true
+            ip6tables -t mangle -F "$chain"
+            ip6tables -t mangle -C FORWARD -j "$chain" 2>/dev/null || ip6tables -t mangle -I FORWARD 1 -j "$chain"
+            ip6tables -t mangle -A "$chain" -m mark --mark "$bypass_mark" -j ACCEPT
+            ip6tables -t mangle -A "$chain" -j NFQUEUE --queue-balance "$queue_balance" --queue-bypass
+        fi
+    else
+        logger -t suricata-hotplug "Restoring Suricata forwarding rules (IDS + Reactive Blocking)..."
+        iptables -N ips 2>/dev/null || true
+        if ! iptables -S forwarding_rule | grep -q " -j ips"; then
+            iptables -A forwarding_rule -j ips
+        fi
+    fi
+fi

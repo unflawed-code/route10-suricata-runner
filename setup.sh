@@ -478,6 +478,12 @@ fi
 log "Ensuring current session config is active..."
 cp "${REMOTE_DIR}/ips-policy.conf" "/etc/suricata/ips-policy.conf"
 sync_managed_rules
+log "Installing firewall hotplug hook..."
+if [ -f "${REMOTE_DIR}/scripts/90-suricata-firewall" ]; then
+    mkdir -p /etc/hotplug.d/firewall
+    cp -f "${REMOTE_DIR}/scripts/90-suricata-firewall" /etc/hotplug.d/firewall/90-suricata-firewall
+    chmod 755 /etc/hotplug.d/firewall/90-suricata-firewall
+fi
 
 log "Ensuring Suricata runtime prerequisites..."
 mkdir -p /a/suricata/data/rules
