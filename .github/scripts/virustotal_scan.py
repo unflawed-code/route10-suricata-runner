@@ -282,11 +282,16 @@ def poll_analysis(
 def markdown_row(path: Path, sha256: str, stats: dict[str, int], source: str) -> str:
     malicious = stats.get("malicious", 0)
     suspicious = stats.get("suspicious", 0)
-    harmless = stats.get("harmless", 0)
-    undetected = stats.get("undetected", 0)
+    no_detection = stats.get("harmless", 0) + stats.get("undetected", 0)
+    not_scanned = (
+        stats.get("type-unsupported", 0)
+        + stats.get("timeout", 0)
+        + stats.get("confirmed-timeout", 0)
+        + stats.get("failure", 0)
+    )
     return (
         f"| `{path.as_posix()}` | `{sha256[:12]}` | {source} | "
-        f"{malicious} | {suspicious} | {harmless} | {undetected} |"
+        f"{malicious} | {suspicious} | {no_detection} | {not_scanned} |"
     )
 
 
@@ -299,7 +304,7 @@ def write_summary(rows: list[str]) -> None:
         if not rows:
             handle.write("No matching files were selected for scanning.\n")
             return
-        handle.write("| File | SHA-256 | Source | Malicious | Suspicious | Harmless | Undetected |\n")
+        handle.write("| File | SHA-256 | Source | Malicious | Suspicious | No detection | Not scanned/error |\n")
         handle.write("| --- | --- | --- | ---: | ---: | ---: | ---: |\n")
         for row in rows:
             handle.write(row + "\n")
