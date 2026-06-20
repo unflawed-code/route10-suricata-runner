@@ -1,5 +1,7 @@
 # Route10 Suricata Runner
 
+[![VirusTotal Scan](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/virustotal-scan.yml/badge.svg)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/virustotal-scan.yml)
+
 This project provides a robust, automated solution for managing Suricata on Route10. It is specifically optimized for the Route10's 1GB RAM and offers flexible operation modes, including a custom high-performance Vectorscan runtime.
 
 - **Aggressive ET rule pruning**: Optimized for constrained hardware.

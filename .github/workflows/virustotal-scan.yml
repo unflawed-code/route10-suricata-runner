@@ -1,0 +1,58 @@
+name: VirusTotal Scan
+
+on:
+  push:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Files to scan
+        required: true
+        default: changed
+        type: choice
+        options:
+          - changed
+          - release
+          - all-risky
+      max_files:
+        description: Maximum selected files to scan in this run
+        required: true
+        default: "15"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan selected files
+    runs-on: ubuntu-latest
+    env:
+      VT_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+      VT_FAIL_ON_SUSPICIOUS: "1"
+      VT_RATE_DELAY_SECONDS: "16"
+      VT_POLL_SECONDS: "30"
+      VT_MAX_POLLS: "20"
+      VT_MAX_FILES: ${{ github.event_name == 'workflow_dispatch' && inputs.max_files || '15' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select scan mode
+        id: mode
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=changed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Scan with VirusTotal
+        shell: bash
+        run: python3 .github/scripts/virustotal_scan.py --mode "${{ steps.mode.outputs.mode }}"
