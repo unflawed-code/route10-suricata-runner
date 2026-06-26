@@ -1,4 +1,21 @@
-# Test category-based pruning logic
+#!/bin/sh
+# Test category-based pruning logic.
+
+set -u
+
+TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t r10suri)"
+cleanup() {
+    rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT INT TERM
+
+cat > "$TMP_DIR/tests_suricata.rules" <<'EOF'
+alert http any any -> any any (msg:"allowed web app attack"; classtype:web-application-attack; sid:1001; rev:1;)
+alert tcp any any -> any any (msg:"disallowed misc activity"; classtype:misc-activity; sid:1003; rev:1;)
+EOF
+
+cd "$TMP_DIR"
+
 python3 - << 'PY'
 import re
 
@@ -7,8 +24,8 @@ disable_out = "tests_disable.sids"
 drop_out = "tests_drop.sids"
 allowed_cats = {"web-application-attack"}
 
-SID_RE  = re.compile(r'\bsid:(\d+)')
-CLS_RE  = re.compile(r'\bclasstype:(\S+?)(?:;|$|\s)')
+SID_RE = re.compile(r'\bsid:(\d+)')
+CLS_RE = re.compile(r'\bclasstype:(\S+?)(?:;|$|\s)')
 
 disable_sids = set()
 
@@ -36,7 +53,6 @@ PY
 echo "Disabled SIDs:"
 cat tests_disable.sids
 
-# Test Patching Logic
 awk -v dis_file="tests_disable.sids" '
     BEGIN { while ((getline < dis_file) > 0) sids[$0] = 1 }
     {
@@ -56,7 +72,20 @@ awk -v dis_file="tests_disable.sids" '
 echo "Optimized Rules:"
 cat tests_suricata-optimized.rules
 
-# Verification check
 echo "Verification results:"
-grep "^# " tests_suricata-optimized.rules | grep -q "sid:1003" && echo "PASS: SID 1003 (Priority 3) is commented out." || echo "FAIL: SID 1003 is NOT commented out."
-grep "^alert" tests_suricata-optimized.rules | grep -q "sid:1001" && echo "PASS: SID 1001 (Priority 1) remains active." || echo "FAIL: SID 1001 is unexpectedly commented out."
+fail=0
+if grep "^# " tests_suricata-optimized.rules | grep -q "sid:1003"; then
+    echo "PASS: SID 1003 is commented out."
+else
+    echo "FAIL: SID 1003 is NOT commented out."
+    fail=1
+fi
+
+if grep "^alert" tests_suricata-optimized.rules | grep -q "sid:1001"; then
+    echo "PASS: SID 1001 remains active."
+else
+    echo "FAIL: SID 1001 is unexpectedly commented out."
+    fail=1
+fi
+
+exit "$fail"
