@@ -1,7 +1,6 @@
 # Route10 Suricata Runner
 
 [![CI](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/ci.yml)
-[![Release Provenance](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/release-provenance.yml/badge.svg)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/release-provenance.yml)
 [![VirusTotal Scan](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/virustotal-scan.yml/badge.svg)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/virustotal-scan.yml)
 [![Semgrep CE](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/semgrep-ce.yml/badge.svg)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/semgrep-ce.yml)
 [![Trivy Scan](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/trivy-scan.yml/badge.svg)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/trivy-scan.yml)
