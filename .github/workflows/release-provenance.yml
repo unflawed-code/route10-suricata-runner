@@ -1,0 +1,85 @@
+name: Release Provenance
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  release:
+    name: Build, checksum, and attest release artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t shell_files < <(git ls-files '*.sh')
+          for file in "${shell_files[@]}"; do
+            echo "bash -n $file"
+            bash -n "$file"
+          done
+
+      - name: Run hermetic tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh tests/run_test.sh
+          sh tests/test-inline-stability-sync.sh
+
+      - name: Build release archive
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            version="manual-${GITHUB_SHA::12}"
+          fi
+          name="${GITHUB_REPOSITORY##*/}-${version}"
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="${name}/" -o "dist/${name}.tar.gz" "${GITHUB_SHA}"
+          (
+            cd dist
+            sha256sum "${name}.tar.gz" > SHA256SUMS
+          )
+          echo "archive=dist/${name}.tar.gz" >> "$GITHUB_OUTPUT"
+          sha256sum dist/*
+
+      - name: Generate artifact attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*
+          show-summary: true
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish GitHub release assets
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes "Automated release artifacts for ${GITHUB_REF_NAME}."
+          fi
+          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
