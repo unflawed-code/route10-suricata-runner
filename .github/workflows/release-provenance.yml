@@ -7,15 +7,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
-  artifact-metadata: write
+  contents: read
 
 jobs:
-  release:
-    name: Build, checksum, and attest release artifact
+  build:
+    name: Build and checksum release artifact
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
 
     steps:
       - name: Check out repository
@@ -56,24 +57,54 @@ jobs:
             cd dist
             sha256sum "${name}.tar.gz" > SHA256SUMS
           )
-          echo "archive=dist/${name}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "archive_name=${name}.tar.gz" >> "$GITHUB_OUTPUT"
           sha256sum dist/*
 
-      - name: Generate artifact attestation
-        uses: actions/attest@v4
-        with:
-          subject-path: dist/*
-          show-summary: true
+      - name: Generate SLSA subject
+        id: hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="${{ steps.build.outputs.archive_name }}"
+          hashes="$(cd dist && sha256sum "$archive" | base64 -w0)"
+          echo "hashes=${hashes}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload workflow artifact
+      - name: Upload release artifacts to workflow
         uses: actions/upload-artifact@v4
         with:
           name: release-artifacts
           path: dist/*
           if-no-files-found: error
+          retention-days: 5
+
+  provenance:
+    name: Generate SLSA provenance
+    needs: [build]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: "${{ needs.build.outputs.hashes }}"
+      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+  release:
+    name: Publish release artifacts
+    needs: [build, provenance]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist
 
       - name: Publish GitHub release assets
-        if: github.ref_type == 'tag'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
