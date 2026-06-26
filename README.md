@@ -1,10 +1,10 @@
 # Route10 Suricata Runner
 
-[![CI](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/unflawed-code/route10-suricata-runner/ci.yml?label=CI)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/ci.yml)
 [![SLSA Provenance L3](https://img.shields.io/badge/SLSA%20Provenance-L3-blue)](SUPPLY_CHAIN.md)
-[![VirusTotal Scan](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/virustotal-scan.yml/badge.svg)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/virustotal-scan.yml)
-[![Semgrep CE](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/semgrep-ce.yml/badge.svg)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/semgrep-ce.yml)
-[![Trivy Scan](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/trivy-scan.yml/badge.svg)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/trivy-scan.yml)
+[![VirusTotal Scan](https://img.shields.io/github/actions/workflow/status/unflawed-code/route10-suricata-runner/virustotal-scan.yml?label=VirusTotal%20Scan)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/virustotal-scan.yml)
+[![Semgrep CE](https://img.shields.io/github/actions/workflow/status/unflawed-code/route10-suricata-runner/semgrep-ce.yml?label=Semgrep%20CE)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/semgrep-ce.yml)
+[![Trivy Scan](https://img.shields.io/github/actions/workflow/status/unflawed-code/route10-suricata-runner/trivy-scan.yml?label=Trivy%20Scan)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/trivy-scan.yml)
 
 This project provides a robust, automated solution for managing Suricata on Route10. It is specifically optimized for the Route10's 1GB RAM and offers flexible operation modes, including a custom high-performance Vectorscan runtime.
 
