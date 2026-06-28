@@ -1,7 +1,7 @@
 # Route10 Suricata Runner
 
 [![CI](https://img.shields.io/github/actions/workflow/status/unflawed-code/route10-suricata-runner/ci.yml?label=CI)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/ci.yml)
-[![SLSA Provenance](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/release-provenance.yml/badge.svg)](SUPPLY_CHAIN.md)
+[![SLSA Provenance](https://img.shields.io/github/actions/workflow/status/unflawed-code/route10-suricata-runner/release-provenance.yml?branch=main&label=SLSA%20Provenance)](SUPPLY_CHAIN.md)
 [![VirusTotal Scan](https://img.shields.io/github/actions/workflow/status/unflawed-code/route10-suricata-runner/virustotal-scan.yml?label=VirusTotal%20Scan)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/virustotal-scan.yml)
 [![Semgrep CE](https://img.shields.io/github/actions/workflow/status/unflawed-code/route10-suricata-runner/semgrep-ce.yml?label=Semgrep%20CE)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/semgrep-ce.yml)
 [![Trivy Scan](https://img.shields.io/github/actions/workflow/status/unflawed-code/route10-suricata-runner/trivy-scan.yml?label=Trivy%20Scan)](https://github.com/unflawed-code/route10-suricata-runner/actions/workflows/trivy-scan.yml)
