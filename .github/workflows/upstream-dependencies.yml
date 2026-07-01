@@ -1,0 +1,201 @@
+name: Upstream Dependency Watch
+
+on:
+  schedule:
+    - cron: "29 21 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Check pinned upstream versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check upstream releases
+        id: deps
+        shell: bash
+        run: |
+          python3 <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import re
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          build_text = Path("build/build-vectorscan-suricata.sh").read_text(encoding="utf-8")
+
+          def shell_default(name):
+              match = re.search(rf'^{re.escape(name)}="\$\{{{re.escape(name)}:-([^}}]+)\}}"', build_text, re.M)
+              if not match:
+                  raise RuntimeError(f"Missing default for {name} in build/build-vectorscan-suricata.sh")
+              return match.group(1).strip()
+
+          dependencies = [
+              {
+                  "name": "Suricata",
+                  "repo": "OISF/suricata",
+                  "current": shell_default("SURICATA_VERSION"),
+                  "tag_prefix": "suricata-",
+                  "source": "build/build-vectorscan-suricata.sh SURICATA_VERSION",
+              },
+              {
+                  "name": "nDPI",
+                  "repo": "ntop/nDPI",
+                  "current": shell_default("NDPI_VERSION"),
+                  "tag_prefix": "",
+                  "source": "build/build-vectorscan-suricata.sh NDPI_VERSION",
+                  "max_exclusive": "5.0",
+                  "policy": "nDPI 5.x is not compatible with the current Suricata+nDPI build path; stay on the latest 4.x tag until compatibility is verified.",
+              },
+              {
+                  "name": "Vectorscan",
+                  "repo": "VectorCamp/vectorscan",
+                  "current": shell_default("VECTORSCAN_REF"),
+                  "tag_prefix": "vectorscan/",
+                  "source": "build/build-vectorscan-suricata.sh VECTORSCAN_REF",
+              },
+          ]
+
+          def github_json(path):
+              req = urllib.request.Request(
+                  f"https://api.github.com{path}",
+                  headers={"Accept": "application/vnd.github+json", "User-Agent": "route10-dependency-watch"},
+              )
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+
+          def normalize(tag, prefix=""):
+              tag = tag.strip()
+              if prefix and tag.startswith(prefix):
+                  tag = tag[len(prefix):]
+              return tag.lstrip("v")
+
+          def version_key(version):
+              base = normalize(version)
+              nums = [int(part) for part in re.findall(r"\d+", base)[:4]]
+              nums.extend([0] * (4 - len(nums)))
+              prerelease = 0 if re.search(r"(alpha|beta|rc|pre)", base, re.I) else 1
+              return (*nums, prerelease, base)
+
+          def is_version_tag(tag, prefix=""):
+              if prefix and not tag.startswith(prefix):
+                  return False
+              cleaned = normalize(tag, prefix)
+              return bool(re.fullmatch(r"\d+(?:\.\d+){1,3}(?:[-_A-Za-z0-9.]*)?", cleaned))
+
+          def is_allowed(tag, dep):
+              max_exclusive = dep.get("max_exclusive")
+              if not max_exclusive:
+                  return True
+              return version_key(normalize(tag, dep["tag_prefix"])) < version_key(max_exclusive)
+
+          def release_latest(repo):
+              try:
+                  release = github_json(f"/repos/{repo}/releases/latest")
+                  return release.get("tag_name", "")
+              except urllib.error.HTTPError:
+                  return ""
+
+          def version_tags(repo, prefix=""):
+              tags = github_json(f"/repos/{repo}/tags?per_page=100")
+              return [item.get("name", "") for item in tags if is_version_tag(item.get("name", ""), prefix)]
+
+          def latest_tags(dep):
+              release_tag = release_latest(dep["repo"])
+              tags = version_tags(dep["repo"], dep["tag_prefix"])
+              candidates = tags[:]
+              if release_tag and is_version_tag(release_tag, dep["tag_prefix"]):
+                  candidates.append(release_tag)
+              if not candidates:
+                  raise RuntimeError(f"No version-like tags found for {dep['repo']}")
+
+              upstream_latest = max(candidates, key=lambda tag: version_key(normalize(tag, dep["tag_prefix"])))
+              compatible = [tag for tag in candidates if is_allowed(tag, dep)]
+              if not compatible:
+                  raise RuntimeError(f"No compatible version-like tags found for {dep['repo']}")
+              compatible_latest = max(compatible, key=lambda tag: version_key(normalize(tag, dep["tag_prefix"])))
+              return upstream_latest, compatible_latest
+
+          outdated = []
+          blocked = []
+          checked = []
+          for dep in dependencies:
+              upstream_latest, compatible_latest = latest_tags(dep)
+              current_normalized = normalize(dep["current"], dep["tag_prefix"])
+              latest_normalized = normalize(compatible_latest, dep["tag_prefix"])
+              upstream_normalized = normalize(upstream_latest, dep["tag_prefix"])
+              item = {
+                  **dep,
+                  "latest": compatible_latest,
+                  "upstream_latest": upstream_latest,
+                  "current_normalized": current_normalized,
+                  "latest_normalized": latest_normalized,
+                  "upstream_normalized": upstream_normalized,
+                  "url": f"https://github.com/{dep['repo']}/releases/latest",
+              }
+              checked.append(item)
+              if version_key(latest_normalized) > version_key(current_normalized):
+                  outdated.append(item)
+              if version_key(upstream_normalized) > version_key(latest_normalized):
+                  blocked.append(item)
+
+          lines = []
+          if outdated:
+              lines.extend([
+                  "Pinned upstream dependency updates are available.",
+                  "",
+                  "| Dependency | Current | Latest compatible | Source |",
+                  "| --- | --- | --- | --- |",
+              ])
+              for dep in outdated:
+                  lines.append(
+                      f"| [{dep['name']}]({dep['url']}) | `{dep['current']}` | `{dep['latest']}` | `{dep['source']}` |"
+                  )
+          else:
+              lines.append("All tracked upstream dependencies are current within the configured compatibility policy.")
+
+          if blocked:
+              lines.extend([
+                  "",
+                  "Compatibility policy notes:",
+              ])
+              for dep in blocked:
+                  lines.append(
+                      f"- {dep['name']}: upstream `{dep['upstream_latest']}` is newer than latest compatible `{dep['latest']}`. {dep.get('policy', 'Held by compatibility policy.')}"
+                  )
+
+          lines.extend([
+              "",
+              "Dependabot is enabled for supported GitHub ecosystems. These bundled release pins are tracked by this workflow because Dependabot does not natively update arbitrary shell version variables.",
+          ])
+
+          Path("dependency-updates.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          print(f"has_updates={str(bool(outdated or blocked)).lower()}")
+          print("checked=" + json.dumps(checked))
+          PY
+
+      - name: Open or update dependency issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          title="Upstream dependency updates available"
+          existing="$(gh issue list --state open --search "${title} in:title" --json number --jq '.[0].number // empty')"
+
+          if [ "${{ steps.deps.outputs.has_updates }}" = "true" ]; then
+            if [ -n "$existing" ]; then
+              gh issue edit "$existing" --body-file dependency-updates.md
+            else
+              gh issue create --title "$title" --body-file dependency-updates.md
+            fi
+          elif [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "All tracked upstream dependencies are current within the configured compatibility policy. Closing this dependency watch issue."
+            gh issue close "$existing" --reason completed
+          fi
+
