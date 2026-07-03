@@ -545,7 +545,7 @@ if [ "$was_running" -eq 1 ]; then
         cleanup_suricata_runtime
         if [ "$IPS_INLINE" = "1" ]; then
             log "starting via /usr/bin/suricata in NFQUEUE inline mode (4 queues, workers)"
-            run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ips-nfq.yaml -q 0 -D
+            run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ips-nfq.yaml -q 0 -q 1 -q 2 -q 3 -D
         else
             log "starting via /usr/bin/suricata in IDS mode"
             run_suricata --user suricata --group suricata -c /usr/share/suricata/suricata-ids.yaml --af-packet=br-lan -D
