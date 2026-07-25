@@ -166,6 +166,23 @@ log_runtime_summary() {
     fi
 }
 
+ensure_vendor_glibc_runtime() {
+    local loader="/.deb/lib/ld-linux-aarch64.so.1"
+    [ -x "$loader" ] && return 0
+
+    # In Pure CLI mode, the vendor service (suricatad.sh) never runs, so the
+    # vendor glibc archive (/usr/lib/suricata-runtime.tar.xz) is never unpacked
+    # into /.deb/lib/.  Trigger the vendor wrapper to unpack it now.
+    log "Vendor glibc loader missing at $loader; triggering vendor unpack..."
+    /usr/bin/suricata -V >/dev/null 2>&1 || true
+
+    if [ -x "$loader" ]; then
+        log "Vendor glibc runtime restored successfully."
+    else
+        log "WARNING: Vendor glibc unpack did not restore $loader. Custom Vectorscan binary may fail to start."
+    fi
+}
+
 ensure_vectorscan_runtime() {
     link_latest_lib() {
         local lib_dir="$1"
@@ -657,6 +674,7 @@ if [ ! -L /var/lib/suricata ] && [ ! -d /var/lib/suricata ]; then
     ln -s /a/suricata/data /var/lib/suricata
 fi
 
+ensure_vendor_glibc_runtime
 ensure_vectorscan_runtime
 sync_managed_rules
 
