@@ -13,7 +13,7 @@ Release artifacts include SHA256 checksums and SLSA Build L3 provenance generate
 - **Aggressive ET rule pruning**: Optimized for constrained hardware.
 - **Automatic switching**: Seamlessly toggles between `IDS + reactive blocking` and `inline IPS`.
 - **Custom high-performance runtime**: Packaged under `vectorscan-runtime.tar.xz` with:
-  - `Suricata 8.0.5`
+  - `Suricata 8.0.6`
   - `Vectorscan 5.4.12`
   - `nDPI 4.14`
 
