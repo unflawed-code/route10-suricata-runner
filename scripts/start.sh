@@ -196,6 +196,15 @@ if [ -f "$PENDING_FILE" ]; then
     exit 1
 fi
 
+# 2a. Fast-Path: Already Running Check
+if pgrep -f "Suricata-Main" >/dev/null 2>&1; then
+    exit 0
+fi
+
+if pgrep -f "boot-prune.sh" >/dev/null 2>&1; then
+    exit 0
+fi
+
 # 3. Environment Check
 if [ ! -d "$REMOTE_DIR" ] || [ ! -f "/usr/bin/suricata" ]; then
     log "Aborting: Environment missing at $REMOTE_DIR"

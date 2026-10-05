@@ -326,8 +326,8 @@ apply_feature_patches() {
 }
 
 is_running() {
-    # UI mode is driven by the system wrapper, not by a raw Suricata process.
-    pgrep -f "/usr/bin/suricatad.sh" >/dev/null 2>&1
+    # Detect both system wrapper (UI mode) and raw Suricata-Main process (Pure CLI mode).
+    pgrep -f "/usr/bin/suricatad.sh" >/dev/null 2>&1 || pgrep -f "Suricata-Main" >/dev/null 2>&1
 }
 
 kill_suricata() {
