@@ -287,6 +287,16 @@ fi
 
 # 5. Trigger background automation
 # boot-prune.sh is now responsible for marking the boot as PENDING
+if pgrep -f "Suricata-Main" >/dev/null 2>&1; then
+    log "Suricata is already running. Skipping startup."
+    exit 0
+fi
+
+if pgrep -f "boot-prune.sh" >/dev/null 2>&1; then
+    log "Suricata boot-prune is already in progress. Skipping startup."
+    exit 0
+fi
+
 if [ -f "$BOOT_SCRIPT" ]; then
     chmod +x "$BOOT_SCRIPT"
     log "Triggering boot-prune.sh..."

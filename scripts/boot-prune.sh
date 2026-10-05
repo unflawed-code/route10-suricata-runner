@@ -635,9 +635,22 @@ if [ ! -x /usr/sbin/ips-rule-policy.sh ]; then
     exit 0
 fi
 
+# Acquire exclusive lock to prevent concurrent runs
+LOCK_DIR="/var/run/suricata-boot-prune.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    lock_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null && [ "$lock_pid" != "$$" ]; then
+        log "Another boot-prune instance is already running (PID $lock_pid). Exiting."
+        exit 0
+    fi
+    rm -rf "$LOCK_DIR" 2>/dev/null || true
+    mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+fi
+echo "$$" > "$LOCK_DIR/pid"
+
 # MARK START OF DANGER ZONE
 touch "${REMOTE_DIR}/BOOT_PENDING"
-trap 'rm -f "${REMOTE_DIR}/BOOT_PENDING"' EXIT
+trap 'rm -rf "$LOCK_DIR"; rm -f "${REMOTE_DIR}/BOOT_PENDING"' EXIT INT TERM
 
 # Load IPS policy for inline mode decision.
 POLICY_CONF="${REMOTE_DIR}/ips-policy.conf"
